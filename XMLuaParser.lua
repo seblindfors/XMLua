@@ -102,12 +102,13 @@ Renderer = setmetatable({
 		Anchor = function(props, object)
 			local relative = GetObjectRelative(object, props.relativeTo or props.relativeKey);
 			local relativePoint = props.relativePoint;
+			local x, y = props.x or 0, props.y or 0;
 			if relativePoint then
-				return object:SetPoint(props.point, relative, relativePoint, props.x, props.y)
+				return object:SetPoint(props.point, relative, relativePoint, x, y)
 			elseif relative then
-				return object:SetPoint(props.point, relative, props.x, props.y)
+				return object:SetPoint(props.point, relative, x, y)
 			end
-			return object:SetPoint(props.point, props.x, props.y)
+			return object:SetPoint(props.point, x, y)
 		end;
 	---------------------------------------------------
 	Animations = __;
@@ -198,7 +199,7 @@ Renderer = setmetatable({
 
 --[[ 
 	-- TODO: map all
-	
+
 	<xs:element name="TitleRegion" type="ui:LayoutFrameType" substitutionGroup="FrameField"
 	<xs:element name="ResizeBounds" substitutionGroup="FrameField"
 	<xs:element name="HitRectInsets" type="Inset" substitutionGroup="FrameField"
