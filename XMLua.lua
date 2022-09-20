@@ -1,3 +1,13 @@
+---------------------------------------------------------------
+-- XMLua
+---------------------------------------------------------------
+-- 
+-- Author:  Sebastian Lindfors (Munk / MunkDev)
+-- Website: https://github.com/seblindfors/XMLua
+-- Licence: GPL version 2 (General Public License)
+--
+---------------------------------------------------------------
+
 local XML;
 
 if LibStub then
@@ -197,11 +207,13 @@ end
 -------------------------------------------------------
 -- Document factory
 -------------------------------------------------------
-local _G = _G;
+local _G, useGlobals = _G;
 local function factory(_, key)
-	local value = _G[key];
-	if (value ~= nil) then
-		return value;
+	if (useGlobals) then
+		local value = _G[key];
+		if (value ~= nil) then
+			return value;
+		end
 	end
 	return elem(key)
 end
@@ -210,18 +222,19 @@ local xmlEnv = setmetatable({}, {__index = factory})
 
 setmetatable(XML, {
 	__index = factory;
-	__call = function(self, input)
+	__call = function(self, input, stack)
 		local isDocument = istable(input)
-		local stack = not isDocument and input or 2;
+		local stackLevel = stack or 2;
 
 		if isDocument then
 			setfenv(self.__stack, self.__env)
-			self.__env, self.__stack = nil, nil;
+			self.__env, self.__stack, useGlobals = nil, nil, nil;
 			return resolve(unpack(input))
 		else
-			self.__env   = getfenv(stack)
-			self.__stack = stack;
-			setfenv(stack, xmlEnv)
+			self.__env    = getfenv(stackLevel)
+			self.__stack  = stackLevel;
+			useGlobals    = not input;
+			setfenv(stackLevel, xmlEnv)
 		end
 		return self;
 	end;
