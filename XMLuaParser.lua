@@ -190,7 +190,7 @@ Renderer = setmetatable({
 	---------------------------------------------------
 }, {
 	__index = function(self, objType)
-		return rawget(rawset(self, objType, (objType:match('^On%w+')) and
+		return rawget(rawset(self, objType, (objType:match('^On%w+') or objType:match('^P%w+Click$')) and
 			GenerateClosure(SetObjectScript, objType) or
 			GenerateClosure(CreateObjectFrame, objType)
 		), objType)

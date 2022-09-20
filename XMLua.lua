@@ -197,16 +197,19 @@ end
 -------------------------------------------------------
 -- Document factory
 -------------------------------------------------------
-local xmlMT = setmetatable({}, {
-	__index = function(self, key)
-		return elem(key)
-	end;
-})
+local _G = _G;
+local function factory(_, key)
+	local value = _G[key];
+	if (value ~= nil) then
+		return value;
+	end
+	return elem(key)
+end
+
+local xmlEnv = setmetatable({}, {__index = factory})
 
 setmetatable(XML, {
-	__index = function(self, key)
-		return elem(key)
-	end;
+	__index = factory;
 	__call = function(self, input)
 		local isDocument = istable(input)
 		local stack = not isDocument and input or 2;
@@ -218,7 +221,7 @@ setmetatable(XML, {
 		else
 			self.__env   = getfenv(stack)
 			self.__stack = stack;
-			setfenv(stack, xmlMT)
+			setfenv(stack, xmlEnv)
 		end
 		return self;
 	end;

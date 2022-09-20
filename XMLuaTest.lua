@@ -1,6 +1,5 @@
 local XML = XMLua or LibStub and LibStub('XMLua', 1)
 
-local UIParent = UIParent
 local onenter = function(self) print('hello world') end
 local pclick = function(self) print('postcall click') end
 
