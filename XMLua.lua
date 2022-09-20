@@ -199,7 +199,6 @@ end
 -------------------------------------------------------
 local xmlMT = setmetatable({}, {
 	__index = function(self, key)
-		print(key)
 		return elem(key)
 	end;
 })

@@ -1,0 +1,11 @@
+## Interface: 90207
+## Interface-Classic: 11402
+## Interface-BCC: 20504
+## Interface-Wrath: 30400
+## Title: XMLua
+
+## Author: Sebastian Lindfors
+## X-Website: https://github.com/seblindfors/XMLua
+
+XMLua.xml
+XMLuaTest.lua
