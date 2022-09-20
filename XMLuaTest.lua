@@ -37,7 +37,7 @@ test = XML() {
 			Anchor .point 'CENTER' .x (0) .y (100);
 		};
 		Frames {
-			Button .parentKey 'Button1' {
+			Button .parentKey 'Button1' .inherits 'SecureActionButtonTemplate' {
 				buttonSize;
 				Anchors {
 					Anchor .point 'LEFT';
