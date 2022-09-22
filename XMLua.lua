@@ -160,6 +160,40 @@ function Element:__tostring()
 end
 
 -------------------------------------------------------
+-- Attributes prototype
+-------------------------------------------------------
+local Attributes, nilproxy = {}, newproxy();
+
+local function getattrs(iter, attrs, k, v)
+    if (k == nil) then return end;
+    if (v == nilproxy) then v = nil end;
+    return v, getattrs(iter, attrs, iter(attrs, k))
+end
+
+function Attributes:__index(key)
+    if (rawget(self, '__env')) then
+        return nilproxy;
+    end
+end
+
+function Attributes:__call(input, stack)
+    local isFetching = istable(input)
+    local stackLevel = stack or 2;
+
+    if isFetching then
+        setfenv(self.__stack, self.__env)
+        self.__env, self.__stack = nil;
+        local iter = pairs(input)
+        return getattrs(iter, input, iter(input))
+    else
+        self.__env   = getfenv(stackLevel)
+        self.__stack = stackLevel;
+        setfenv(stackLevel, self)
+    end
+    return self;
+end
+
+-------------------------------------------------------
 -- Metadata
 -------------------------------------------------------
 local Metadata = {
@@ -189,7 +223,7 @@ end
 local function create(name)
 	return setmetatable({
 		[Props.Name]       = name;
-		[Props.Attributes] = {};
+		[Props.Attributes] = setmetatable({}, Attributes);
 	}, Element)
 end
 
@@ -228,12 +262,12 @@ setmetatable(XML, {
 
 		if isDocument then
 			setfenv(self.__stack, self.__env)
-			self.__env, self.__stack, useGlobals = nil, nil, nil;
+			self.__env, self.__stack, useGlobals = nil;
 			return resolve(unpack(input))
 		else
-			self.__env    = getfenv(stackLevel)
-			self.__stack  = stackLevel;
-			useGlobals    = not input;
+			self.__env   = getfenv(stackLevel)
+			self.__stack = stackLevel;
+			useGlobals   = not input;
 			setfenv(stackLevel, xmlEnv)
 		end
 		return self;
