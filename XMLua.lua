@@ -164,10 +164,10 @@ end
 -------------------------------------------------------
 local Attributes, nilproxy = {}, newproxy();
 
-local function getattrs(iter, attrs, k, v)
-    if (k == nil) then return end;
+local function getattrs(v, ...)
+    if (v == nil) then return end;
     if (v == nilproxy) then v = nil end;
-    return v, getattrs(iter, attrs, iter(attrs, k))
+    return v, getattrs(...)
 end
 
 function Attributes:__index(key)
@@ -183,8 +183,7 @@ function Attributes:__call(input, stack)
     if isFetching then
         setfenv(self.__stack, self.__env)
         self.__env, self.__stack = nil;
-        local iter = pairs(input)
-        return getattrs(iter, input, iter(input))
+        return getattrs(unpack(input))
     else
         self.__env   = getfenv(stackLevel)
         self.__stack = stackLevel;
