@@ -7,6 +7,11 @@ local Schema, Renderer, ScriptBindingType;
 -------------------------------------------------------
 -- Helpers
 -------------------------------------------------------
+local function ThrowError(message, elem)
+	-- TODO: limit output length, it gets ridiculously detailed
+	error(('%s\nin tag:\n%s\n'):format(message:gsub('^.+XMLuaParser.lua:%d+: ', ''), tostring(elem)), 4)
+end
+
 local function FindMethod(key, map, haystack)
 	if map[key] then return map[key] end;
 	local needle = key:lower():gsub('^set', '');
@@ -17,6 +22,14 @@ local function FindMethod(key, map, haystack)
 			return method;
 		end
 	end
+end
+
+local function CallMethodOnObject(object, method, ...)
+	assert(object, 'Missing target widget.')
+	assert(method, 'Missing target method.')
+	local func = assert(FindMethod(method, Schema[object:GetObjectType()], getmetatable(object).__index),
+		('Could not find target method for %q.'):format(method))
+	return func(object, ...)
 end
 
 local function SetObjectProps(name, object, props)
@@ -59,7 +72,7 @@ local function GetObjectRelative(object, query)
 	return relative;
 end
 
-local function SetObjectScript(scriptType, props, object, _, tag)
+local function SetObjectScript(scriptType, props, object, tag)
 	local func = rawget(tag, Props.Content) or rawget(object, props.method) or _G[props['function']];
 	local set  = (props.intrinsicOrder == nil and object.SetScript or object.HookScript)
 	set(object, scriptType, func, ScriptBindingType[props.intrinsicOrder])
@@ -68,8 +81,14 @@ local function SetObjectScript(scriptType, props, object, _, tag)
 	end
 end
 
-local function ThrowError(message, elem)
-	error(('%s\nin tag:\n%s\n'):format(message:gsub('^.+XMLuaParser.lua:%d+: ', ''), tostring(elem)), 4)
+local function Dimension(props, object, tag)
+	return C_Widget.IsWidget(object) and {
+		target = object;
+		method = rawget(tag, Props.Name)
+	} or {
+		target = object.target;
+		method = object.method .. rawget(tag, Props.Name);
+	};
 end
 
 local function __(_, object)
@@ -97,6 +116,10 @@ Schema = setmetatable({
 -------------------------------------------------------
 Renderer = setmetatable({
 	---------------------------------------------------
+	AbsDimension = function(props, targetProps)
+		return CallMethodOnObject(targetProps.target, targetProps.method, props() {x, y} )
+	end;
+	---------------------------------------------------
 	Anchors = __;
 	---------------------------------------------------
 		Anchor = function(props, object)
@@ -121,13 +144,14 @@ Renderer = setmetatable({
 	-------------------------------------------------------
 	Attributes = __;
 	-------------------------------------------------------
-		Attribute = function(props, object, _, tag)
-			assert(type(props.name) ~= nil, 'Attribute name is nil.')
-			assert(type(props.value) ~= nil, 'Attribute value is nil.')
+		Attribute = function(props, object)
+			local name, value = props() {name, value};
+			assert(type(name) ~= nil, 'Attribute name is nil.')
+			assert(type(value) ~= nil, 'Attribute value is nil.')
 			if (props.type) then
-				assert(type(props.value) == props.type, 'Attribute has invalid type.')
+				assert(type(value) == props.type, 'Attribute has invalid type.')
 			end
-			return object:SetAttribute(props.name, props.value)
+			return object:SetAttribute(name, value)
 		end;
 	-------------------------------------------------------
 	Frames = __;
@@ -136,14 +160,14 @@ Renderer = setmetatable({
 	-------------------------------------------------------
 		Layer = __;
 		---------------------------------------------------
-			FontString = function(props, object, parentProps)
+			FontString = function(props, object, _, parentProps)
 				return SetObjectProps('FontString', object:CreateFontString(
 					props.name,
 					parentProps.level,
 					props.inherits
 				), props)
 			end;
-			Texture = function(props, object, parentProps)
+			Texture = function(props, object, _, parentProps)
 				return SetObjectProps('Texture', object:CreateTexture(
 					props.name,
 					parentProps.level,
@@ -151,9 +175,16 @@ Renderer = setmetatable({
 					parentProps.textureSubLevel
 				), props)
 			end;
-			Color = function(props, object)
-				(object.SetColorTexture or object.SetTextColor)(object, props.r, props.g, props.b, props.a)
+			Color = function(props, object, tag)
+				local color = _G[props.color] or props.color or CreateColor(props() {r, g, b, a})
+				assert(color:GetRGB())
+				if C_Widget.IsWidget(object) then
+					return (object.SetColorTexture or object.SetTextColor)(object, color:GetRGBA())
+				end
+				return CallMethodOnObject(object.target, object.method .. 'Color', color:GetRGBA())
 			end;
+			Shadow = Dimension;
+			Offset = Dimension;
 	-------------------------------------------------------
 	KeyValues = __;
 	-------------------------------------------------------
@@ -175,17 +206,23 @@ Renderer = setmetatable({
 			assert(object[key] ~= nil, ('Failed to set key-value pair: [%q] = %q'):format(tostring(key), tostring(value)))
 		end;
 	-------------------------------------------------------
+	ResizeBounds = __;
+	-------------------------------------------------------
+		minResize = Dimension;
+		maxResize = Dimension;
+	-------------------------------------------------------
 	Scripts = __;
 	-------------------------------------------------------
-	Size = function(props, object)
-		local x, y = props.x, props.y;
+	Size = function(props, object, tag)
+		local x, y = props() {x, y};
 		if (x and y) then
-			object:SetSize(x, y)
+			return object:SetSize(x, y)
 		elseif (x) then
-			object:SetWidth(x)
+			return object:SetWidth(x)
 		elseif (y) then
-			object:SetHeight(y)
+			return object:SetHeight(y)
 		end
+		return Dimension(props, object, tag)
 	end;
 	---------------------------------------------------
 }, {
@@ -200,17 +237,12 @@ Renderer = setmetatable({
 --[[ 
 	-- TODO: map all
 
-	<xs:element name="TitleRegion" type="ui:LayoutFrameType" substitutionGroup="FrameField"
-	<xs:element name="ResizeBounds" substitutionGroup="FrameField"
 	<xs:element name="HitRectInsets" type="Inset" substitutionGroup="FrameField"
 	<xs:element name="Layers" substitutionGroup="FrameField"
-	<xs:element name="Attributes" type="AttributesType" substitutionGroup="FrameField"
 	<xs:element name="Frames" substitutionGroup="FrameField"
 
-	<xs:element name="Size" type="Dimension" substitutionGroup="LayoutField"
 	<xs:element name="Anchors" substitutionGroup="LayoutField"
 	<xs:element name="Scripts" type="ScriptsType" substitutionGroup="LayoutField"
-	<xs:element name="KeyValues" type="KeyValuesType" substitutionGroup="LayoutField"
 	<xs:element name="Animations" substitutionGroup="LayoutField"
 ]]
 
@@ -225,7 +257,7 @@ function Resolver:__call(...)
 	local object, parentKey = Renderer[name](props, ...)
 	if (object and type(content) == 'table') then
 		for index, elem in ipairs(content) do
-			local isOK, result, childKey = pcall(elem, object, props, elem)
+			local isOK, result, childKey = pcall(elem, object, elem, props, name)
 			if not isOK then
 				ThrowError(result, elem)
 			end
