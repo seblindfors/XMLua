@@ -47,13 +47,11 @@ local function SetObjectProps(name, object, props)
 	return object, props.parentKey;
 end
 
-local function CreateObjectFrame(objType, props, object)
-	return SetObjectProps(objType, CreateFrame(objType,
-		props.name,
-		props.parent or object,
-		props.inherits,
-		props.id
-	), props);
+local function SetObjectScript(scriptType, props, object, tag)
+	local func = rawget(tag, Props.Content) or rawget(object, props.method) or _G[props['function']];
+	local set  = (props.intrinsicOrder == nil and object.SetScript or object.HookScript)
+	set(object, scriptType, func, ScriptBindingType[props.intrinsicOrder])
+	return func;
 end
 
 local function GetObjectRelative(object, query)
@@ -72,13 +70,47 @@ local function GetObjectRelative(object, query)
 	return relative;
 end
 
-local function SetObjectScript(scriptType, props, object, tag)
-	local func = rawget(tag, Props.Content) or rawget(object, props.method) or _G[props['function']];
-	local set  = (props.intrinsicOrder == nil and object.SetScript or object.HookScript)
-	set(object, scriptType, func, ScriptBindingType[props.intrinsicOrder])
-	if (scriptType == 'OnLoad') then
-		func(object)
+local function SetPoint(func, props, object, tag)
+	local relative = GetObjectRelative(object, props.relativeTo or props.relativeKey);
+	local relativePoint = props.relativePoint;
+	local offX, offY = props.x, props.y;
+	if (not offX and not offY) then
+		local children = rawget(tag, Props.Content)
+		local offset = children and children[1];
+		if (offset) then
+			offX, offY = rawget(offset, Props.Attributes)() {x, y};
+		end
 	end
+	offX, offY = offX or 0, offY or 0;
+	if relativePoint then
+		return func(object, props.point, relative, relativePoint, offX, offY)
+	elseif relative then
+		return func(object, props.point, relative, offX, offY)
+	end
+	return func(object, props.point, offX, offY)
+end
+
+local function CreateObjectFrame(objType, props, object)
+	return SetObjectProps(objType, CreateFrame(objType,
+		props.name,
+		props.parent or object,
+		props.inherits,
+		props.id
+	), props);
+end
+
+local function CreateLayoutFrame(props, object, tag, parentProps)
+	local objType = rawget(tag, Props.Name)
+	return SetObjectProps(objType, CallMethodOnObject(object, 'Create' .. objType,
+		props.name,
+		parentProps.level,
+		props.inherits,
+		props.textureSubLevel
+	), props)
+end
+
+local function EvaluateString(query)
+	return assert(loadstring(('return %s'):format(query)))()
 end
 
 local function Dimension(props, object, tag)
@@ -91,7 +123,7 @@ local function Dimension(props, object, tag)
 	};
 end
 
-local function __(_, object)
+local function RenderOnParent(_, object)
 	return object; -- returns the current object, essentially skip
 end
 
@@ -120,21 +152,13 @@ Renderer = setmetatable({
 		return CallMethodOnObject(targetProps.target, targetProps.method, props() {x, y} )
 	end;
 	---------------------------------------------------
-	Anchors = __;
+	Anchors = RenderOnParent;
 	---------------------------------------------------
-		Anchor = function(props, object)
-			local relative = GetObjectRelative(object, props.relativeTo or props.relativeKey);
-			local relativePoint = props.relativePoint;
-			local x, y = props.x or 0, props.y or 0;
-			if relativePoint then
-				return object:SetPoint(props.point, relative, relativePoint, x, y)
-			elseif relative then
-				return object:SetPoint(props.point, relative, x, y)
-			end
-			return object:SetPoint(props.point, x, y)
+		Anchor = function(props, object, tag)
+			return SetPoint(object.SetPoint, props, object, tag)
 		end;
 	---------------------------------------------------
-	Animations = __;
+	Animations = RenderOnParent;
 	---------------------------------------------------
 		AnimationGroup = function(props, object)
 			return SetObjectProps('AnimationGroup', object:CreateAnimationGroup(
@@ -142,7 +166,7 @@ Renderer = setmetatable({
 			), props)
 		end;
 	-------------------------------------------------------
-	Attributes = __;
+	Attributes = RenderOnParent;
 	-------------------------------------------------------
 		Attribute = function(props, object)
 			local name, value = props() {name, value};
@@ -154,28 +178,17 @@ Renderer = setmetatable({
 			return object:SetAttribute(name, value)
 		end;
 	-------------------------------------------------------
-	Frames = __;
+	Frames = RenderOnParent;
 	-------------------------------------------------------
-	Layers = __;
+	HitRectInsets = function(props, object)
+		return object:SetHitRectInsets(props() {left, right, top, bottom})
+	end;
 	-------------------------------------------------------
-		Layer = __;
+	Layers = RenderOnParent;
+	-------------------------------------------------------
+		Layer = RenderOnParent;
 		---------------------------------------------------
-			FontString = function(props, object, _, parentProps)
-				return SetObjectProps('FontString', object:CreateFontString(
-					props.name,
-					parentProps.level,
-					props.inherits
-				), props)
-			end;
-			Texture = function(props, object, _, parentProps)
-				return SetObjectProps('Texture', object:CreateTexture(
-					props.name,
-					parentProps.level,
-					props.inherits,
-					parentProps.textureSubLevel
-				), props)
-			end;
-			Color = function(props, object, tag)
+			Color = function(props, object)
 				local color = _G[props.color] or props.color or CreateColor(props() {r, g, b, a})
 				assert(color:GetRGB())
 				if C_Widget.IsWidget(object) then
@@ -183,22 +196,59 @@ Renderer = setmetatable({
 				end
 				return CallMethodOnObject(object.target, object.method .. 'Color', color:GetRGBA())
 			end;
+			-----------------------------------------------
+			FontString = CreateLayoutFrame;
+			-----------------------------------------------
+			Line = CreateLayoutFrame;
+			-----------------------------------------------
+				StartAnchor = function(props, object, tag)
+					return SetPoint(object.SetStartPoint, props, object, tag)
+				end;
+				-------------------------------------------
+				EndAnchor = function(props, object, tag)
+					return SetPoint(object.SetEndPoint, props, object, tag)
+				end;
+			-----------------------------------------------
+			MaskTexture = CreateLayoutFrame;
+			-----------------------------------------------
+				MaskedTextures = RenderOnParent;
+				-------------------------------------------
+					MaskedTexture = function(props, object)
+						local childKey, target = props() {childKey, target};
+						if not C_Widget.IsWidget(target) then
+							target = assert(childKey and assert(object:GetParent()[childKey],
+								'Child key does not exist on parent.')
+								or EvaluateString(target),
+								'Target mask texture does not exist.'
+							);
+						end
+						return target:AddMaskTexture(object)
+					end;
+			-----------------------------------------------
+			Texture = CreateLayoutFrame;
+			-----------------------------------------------
 			Shadow = Dimension;
-			Offset = Dimension;
+			-----------------------------------------------
+			Offset = function(props, object, tag)
+				if (props.x or props.y) then
+					return Renderer.AbsDimension(props, object)
+				end
+				return Dimension(props, object, tag)
+			end;
 	-------------------------------------------------------
-	KeyValues = __;
+	KeyValues = RenderOnParent;
 	-------------------------------------------------------
 		KeyValue = function(props, object)
 			assert(type(props.key) ~= nil, 'Key is nil in key-value pair.')
 			assert(type(props.value) ~= nil, 'Value is nil in key-value pair.')
 			local key, value;
 			if (props.keyType == 'global') then
-				key = _G[props.key];
+				key = EvaluateString(props.key);
 			else
 				key = props.key;
 			end
 			if (props.type == 'global') then
-				value = _G[props.value];
+				value = EvaluateString(props.value);
 			else
 				value = props.value;
 			end
@@ -206,12 +256,16 @@ Renderer = setmetatable({
 			assert(object[key] ~= nil, ('Failed to set key-value pair: [%q] = %q'):format(tostring(key), tostring(value)))
 		end;
 	-------------------------------------------------------
-	ResizeBounds = __;
+	ResizeBounds = RenderOnParent;
 	-------------------------------------------------------
 		minResize = Dimension;
 		maxResize = Dimension;
 	-------------------------------------------------------
-	Scripts = __;
+	Scripts = RenderOnParent;
+	-------------------------------------------------------
+		OnLoad = function(props, object, tag)
+			SetObjectScript('OnLoad', props, object, tag)(object)
+		end;
 	-------------------------------------------------------
 	Size = function(props, object, tag)
 		local x, y = props() {x, y};
@@ -224,7 +278,7 @@ Renderer = setmetatable({
 		end
 		return Dimension(props, object, tag)
 	end;
-	---------------------------------------------------
+	-------------------------------------------------------
 }, {
 	__index = function(self, objType)
 		return rawget(rawset(self, objType, (objType:match('^On%w+') or objType:match('^P%w+Click$')) and
@@ -237,13 +291,59 @@ Renderer = setmetatable({
 --[[ 
 	-- TODO: map all
 
-	<xs:element name="HitRectInsets" type="Inset" substitutionGroup="FrameField"
-	<xs:element name="Layers" substitutionGroup="FrameField"
+	<xs:element name="Animations" substitutionGroup="LayoutField"
+
+	<xs:element name="Translation" type="TranslationType" substitutionGroup="Animation"
+	<xs:element name="LineTranslation" type="LineTranslationType" substitutionGroup="Animation"
+	<xs:element name="Rotation" type="RotationType" substitutionGroup="Animation"
+	<xs:element name="Scale" type="ScaleType" substitutionGroup="Animation"
+	<xs:element name="LineScale" type="LineScaleType" substitutionGroup="Animation"
+	<xs:element name="Alpha" type="AlphaType" substitutionGroup="Animation"
+	<xs:element name="Path" type="PathType" substitutionGroup="Animation"
+	<xs:element name="FlipBook" type="FlipBookType" substitutionGroup="Animation"
+	<xs:element name="TextureCoordTranslation" type="TextureCoordTranslationType" substitutionGroup="Animation"
+
 	<xs:element name="Frames" substitutionGroup="FrameField"
 
-	<xs:element name="Anchors" substitutionGroup="LayoutField"
-	<xs:element name="Scripts" type="ScriptsType" substitutionGroup="LayoutField"
-	<xs:element name="Animations" substitutionGroup="LayoutField"
+	<xs:element name="UnitPositionFrame" type="UnitPositionFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Button" type="ButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="CheckButton" type="CheckButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="StatusBar" type="StatusBarType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Slider" type="SliderType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="EditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ColorSelect" type="ui:ColorSelectType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Model" type="ModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ModelFFX" type="ModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="SimpleHTML" type="ui:SimpleHTMLType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="MessageFrame" type="MessageFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ScrollingMessageFrame" type="ScrollingMessageFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ScrollFrame" type="ScrollFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="MovieFrame" type="MovieFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="WorldFrame" type="WorldFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="GameTooltip" type="GameTooltipType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Cooldown" type="CooldownType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="QuestPOIFrame" type="QuestPOIFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ArchaeologyDigSiteFrame" type="ArchaeologyDigSiteFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ScenarioPOIFrame" type="ScenarioPOIFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Minimap" type="MinimapType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="PlayerModel" type="PlayerModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="DressUpModel" type="DressUpModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="TabardModel" type="TabardModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="CinematicModel" type="CinematicModelType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="UiCamera" type="UiCameraType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="TaxiRouteFrame" type="TaxiRouteFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Browser" type="BrowserType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="Checkout" type="CheckoutType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="FogOfWarFrame" type="FogOfWarFrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ModelScene" type="ModelSceneType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="OffScreenFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ContainedAlertFrame" type="ButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="DropDownToggleButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="EventEditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="EventFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="EventButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="ItemButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="TestFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
 ]]
 
 -------------------------------------------------------
