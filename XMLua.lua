@@ -53,7 +53,7 @@ local function istable(obj)  return type(obj) == 'table' end;
 -------------------------------------------------------
 -- Indentation handling
 -------------------------------------------------------
-local INDENT_LEVEL   = 4;
+local INDENT_LEVEL   = 2;
 local INDENT_TOKEN   = ' ';
 local INDENT_NEWLINE = '\n';
 
@@ -125,7 +125,7 @@ function Element:__tostring()
 	end
 
 	if isstring(content) then
-		local parsed, prev, depth = TAG.NONE, TAG.NONE, 1;
+		local parsed, depth, prev, isPrevClosingTag, isPrevEnclosedTag = TAG.NONE, 1, TAG.NONE;
 
 		local i, j, k, this, innerText;
 		while true do
@@ -135,13 +135,12 @@ function Element:__tostring()
 			innerText = k and gettext(content, k, j)
 			this, k = gettag(content, i, j)
 
-			local isClosingTag      = this:match(TAG.CLOSING)
-			local isEnclosedTag     = this:match(TAG.ENCLOSED)
-			local isOpeningTag      = prev:match(TAG.OPENING) and not isEnclosedTag;
-			local isPrevEnclosedTag = prev:match(TAG.ENCLOSED)
+			local isClosingTag  = this:match(TAG.CLOSING)
+			local isEnclosedTag = this:match(TAG.ENCLOSED)
+			local isOpeningTag  = not isEnclosedTag and prev:match(TAG.OPENING);
 
 			if (isOpeningTag and not isEnclosedTag and not isPrevEnclosedTag) or
-				(isEnclosedTag and not isPrevEnclosedTag) then
+				(isEnclosedTag and not isPrevEnclosedTag and not isPrevClosingTag) then
 				depth = depth + 1;
 			end
 			if isClosingTag then
@@ -149,7 +148,7 @@ function Element:__tostring()
 			end
 
 			parsed = indent(parsed, prev, innerText, depth)
-			prev = this;
+			prev, isPrevClosingTag, isPrevEnclosedTag = this, isClosingTag, isEnclosedTag;
 		end
 
 		parsed = prev:len() == 0 and content or parsed .. prev .. INDENT_NEWLINE;
@@ -164,10 +163,10 @@ end
 -------------------------------------------------------
 local Attributes, nilproxy = {}, newproxy();
 
-local function getattrs(v, ...)
+local function scrub(v, ...)
     if (v == nil) then return end;
     if (v == nilproxy) then v = nil end;
-    return v, getattrs(...)
+    return v, scrub(...)
 end
 
 function Attributes:__index(key)
@@ -183,7 +182,7 @@ function Attributes:__call(input, stack)
     if isFetching then
         setfenv(self.__stack, self.__env)
         self.__env, self.__stack = nil;
-        return getattrs(unpack(input))
+        return scrub(unpack(input))
     else
         self.__env   = getfenv(stackLevel)
         self.__stack = stackLevel;
