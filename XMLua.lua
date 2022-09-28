@@ -53,7 +53,7 @@ local function istable(obj)  return type(obj) == 'table' end;
 -------------------------------------------------------
 -- Indentation handling
 -------------------------------------------------------
-local INDENT_LEVEL   = 2;
+local INDENT_LEVEL   = 4;
 local INDENT_TOKEN   = ' ';
 local INDENT_NEWLINE = '\n';
 
@@ -125,9 +125,10 @@ function Element:__tostring()
 	end
 
 	if isstring(content) then
-		local parsed, depth, prev, isPrevClosingTag, isPrevEnclosedTag = TAG.NONE, 1, TAG.NONE;
-
+		local parsed, depth, prev = TAG.NONE, 1, TAG.NONE;
+		local isPrevClosingTag, isPrevEnclosedTag;
 		local i, j, k, this, innerText;
+
 		while true do
 			i, j = findtag(content, j)
 			if not i then break end;
@@ -137,10 +138,9 @@ function Element:__tostring()
 
 			local isClosingTag  = this:match(TAG.CLOSING)
 			local isEnclosedTag = this:match(TAG.ENCLOSED)
-			local isOpeningTag  = not isEnclosedTag and prev:match(TAG.OPENING);
+			local isPrevOpenTag = prev:match(TAG.OPENING)
 
-			if (isOpeningTag and not isEnclosedTag and not isPrevEnclosedTag) or
-				(isEnclosedTag and not isPrevEnclosedTag and not isPrevClosingTag) then
+			if not isPrevEnclosedTag and isPrevOpenTag and not isPrevClosingTag then
 				depth = depth + 1;
 			end
 			if isClosingTag then
