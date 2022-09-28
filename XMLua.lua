@@ -125,8 +125,8 @@ function Element:__tostring()
 	end
 
 	if isstring(content) then
-		local parsed, depth, prev = TAG.NONE, 1, TAG.NONE;
-		local isPrevClosingTag, isPrevEnclosedTag;
+		local parsed, depth = TAG.NONE, 1;
+		local prev, isPrevClosingTag = TAG.NONE;
 		local i, j, k, this, innerText;
 
 		while true do
@@ -137,10 +137,8 @@ function Element:__tostring()
 			this, k = gettag(content, i, j)
 
 			local isClosingTag  = this:match(TAG.CLOSING)
-			local isEnclosedTag = this:match(TAG.ENCLOSED)
-			local isPrevOpenTag = prev:match(TAG.OPENING)
 
-			if not isPrevEnclosedTag and isPrevOpenTag and not isPrevClosingTag then
+			if not isPrevClosingTag and not prev:match(TAG.ENCLOSED) and prev:match(TAG.OPENING) then
 				depth = depth + 1;
 			end
 			if isClosingTag then
@@ -148,7 +146,7 @@ function Element:__tostring()
 			end
 
 			parsed = indent(parsed, prev, innerText, depth)
-			prev, isPrevClosingTag, isPrevEnclosedTag = this, isClosingTag, isEnclosedTag;
+			prev, isPrevClosingTag = this, isClosingTag;
 		end
 
 		parsed = prev:len() == 0 and content or parsed .. prev .. INDENT_NEWLINE;
