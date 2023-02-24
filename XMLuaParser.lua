@@ -15,7 +15,7 @@ end
 local function FindMethod(key, map, haystack)
 	if map[key] then return map[key] end;
 	local needle = key:lower():gsub('^set', '');
-	for name, method in pairs(haystack) do
+	for name, method in pairs(haystack or getmetatable(object).__index) do
 		if (not name:match('^Get') and name:gsub('^Set', ''):lower() == needle) then
 			map[key] = method;
 			print(('Mapping %s for %s'):format(key, name))
@@ -27,18 +27,18 @@ end
 local function CallMethodOnObject(object, method, ...)
 	assert(object, 'Missing target widget.')
 	assert(method, 'Missing target method.')
-	local func = assert(FindMethod(method, Schema[object:GetObjectType()], getmetatable(object).__index),
+	local func = assert(FindMethod(method, Schema[object:GetObjectType()]),
 		('Could not find target method for %q.'):format(method))
 	return func(object, ...)
 end
 
-local function SetObjectProps(name, object, props)
+local function SetObjectProps(objType, object, props)
 	local index = getmetatable(object).__index;
-	local map = Schema[name];
+	local map = Schema[objType];
 	for key, val in pairs(props) do
 		local func = FindMethod(key, map, index);
 		if not func then
-			print(('Missing prop handler for %s: %s'):format(name, key))
+			print(('Missing prop handler for %s: %s'):format(objType, key))
 		end
 		if func then
 			func(object, val)
@@ -73,7 +73,7 @@ end
 local function SetPoint(func, props, object, tag)
 	local relative = GetObjectRelative(object, props.relativeTo or props.relativeKey);
 	local relativePoint = props.relativePoint;
-	local offX, offY = props.x, props.y;
+	local offX, offY = props() {x, y};
 	if (not offX and not offY) then
 		local children = rawget(tag, Props.Content)
 		local offset = children and children[1];
@@ -90,6 +90,9 @@ local function SetPoint(func, props, object, tag)
 	return func(object, props.point, offX, offY)
 end
 
+-------------------------------------------------------
+-- Factory
+-------------------------------------------------------
 local function CreateObjectFrame(objType, props, object)
 	return SetObjectProps(objType, CreateFrame(objType,
 		props.name,
@@ -99,8 +102,7 @@ local function CreateObjectFrame(objType, props, object)
 	), props);
 end
 
-local function CreateLayoutFrame(props, object, tag, parentProps)
-	local objType = rawget(tag, Props.Name)
+local function CreateLayoutFrame(objType, props, object, parentProps)
 	return SetObjectProps(objType, CallMethodOnObject(object, 'Create' .. objType,
 		props.name,
 		parentProps.level,
@@ -109,7 +111,15 @@ local function CreateLayoutFrame(props, object, tag, parentProps)
 	), props)
 end
 
-local function EvaluateString(query)
+-------------------------------------------------------
+-- Types
+-------------------------------------------------------
+local function LayoutFrame(props, object, tag, parentProps)
+	local objType = rawget(tag, Props.Name)
+	return CreateLayoutFrame(objType, props, object, parentProps)
+end
+
+local function Reference(query)
 	return assert(loadstring(('return %s'):format(query)))()
 end
 
@@ -123,7 +133,14 @@ local function Dimension(props, object, tag)
 	};
 end
 
-local function RenderOnParent(_, object)
+local function TextureType(props, object, tag, parentProps)
+	local objType = rawget(tag, Props.Name)
+	local frame = CreateLayoutFrame('Texture', props, object, parentProps)
+	CallMethodOnObject(object, 'Set'..objType, frame)
+	return frame;
+end
+
+local function ComplexType(_, object)
 	return object; -- returns the current object, essentially skip
 end
 
@@ -152,13 +169,13 @@ Renderer = setmetatable({
 		return CallMethodOnObject(targetProps.target, targetProps.method, props() {x, y} )
 	end;
 	---------------------------------------------------
-	Anchors = RenderOnParent;
+	Anchors = ComplexType;
 	---------------------------------------------------
 		Anchor = function(props, object, tag)
 			return SetPoint(object.SetPoint, props, object, tag)
 		end;
 	---------------------------------------------------
-	Animations = RenderOnParent;
+	Animations = ComplexType;
 	---------------------------------------------------
 		AnimationGroup = function(props, object)
 			return SetObjectProps('AnimationGroup', object:CreateAnimationGroup(
@@ -166,7 +183,7 @@ Renderer = setmetatable({
 			), props)
 		end;
 	-------------------------------------------------------
-	Attributes = RenderOnParent;
+	Attributes = ComplexType;
 	-------------------------------------------------------
 		Attribute = function(props, object)
 			local name, value = props() {name, value};
@@ -178,15 +195,15 @@ Renderer = setmetatable({
 			return object:SetAttribute(name, value)
 		end;
 	-------------------------------------------------------
-	Frames = RenderOnParent;
+	Frames = ComplexType;
 	-------------------------------------------------------
 	HitRectInsets = function(props, object)
 		return object:SetHitRectInsets(props() {left, right, top, bottom})
 	end;
 	-------------------------------------------------------
-	Layers = RenderOnParent;
+	Layers = ComplexType;
 	-------------------------------------------------------
-		Layer = RenderOnParent;
+		Layer = ComplexType;
 		---------------------------------------------------
 			Color = function(props, object)
 				local color = _G[props.color] or props.color or CreateColor(props() {r, g, b, a})
@@ -197,9 +214,9 @@ Renderer = setmetatable({
 				return CallMethodOnObject(object.target, object.method .. 'Color', color:GetRGBA())
 			end;
 			-----------------------------------------------
-			FontString = CreateLayoutFrame;
+			FontString = LayoutFrame;
 			-----------------------------------------------
-			Line = CreateLayoutFrame;
+			Line = LayoutFrame;
 			-----------------------------------------------
 				StartAnchor = function(props, object, tag)
 					return SetPoint(object.SetStartPoint, props, object, tag)
@@ -209,23 +226,28 @@ Renderer = setmetatable({
 					return SetPoint(object.SetEndPoint, props, object, tag)
 				end;
 			-----------------------------------------------
-			MaskTexture = CreateLayoutFrame;
+			MaskTexture = LayoutFrame;
 			-----------------------------------------------
-				MaskedTextures = RenderOnParent;
+				MaskedTextures = ComplexType;
 				-------------------------------------------
 					MaskedTexture = function(props, object)
 						local childKey, target = props() {childKey, target};
 						if not C_Widget.IsWidget(target) then
 							target = assert(childKey and assert(object:GetParent()[childKey],
 								'Child key does not exist on parent.')
-								or EvaluateString(target),
+								or Reference(target),
 								'Target mask texture does not exist.'
 							);
 						end
 						return target:AddMaskTexture(object)
 					end;
 			-----------------------------------------------
-			Texture = CreateLayoutFrame;
+			Texture = LayoutFrame;
+			-----------------------------------------------
+				DisabledTexture = TextureType;
+				HighlightTexture = TextureType;
+				NormalTexture = TextureType;
+				PushedTexture = TextureType;
 			-----------------------------------------------
 			Shadow = Dimension;
 			-----------------------------------------------
@@ -236,19 +258,19 @@ Renderer = setmetatable({
 				return Dimension(props, object, tag)
 			end;
 	-------------------------------------------------------
-	KeyValues = RenderOnParent;
+	KeyValues = ComplexType;
 	-------------------------------------------------------
 		KeyValue = function(props, object)
 			assert(type(props.key) ~= nil, 'Key is nil in key-value pair.')
 			assert(type(props.value) ~= nil, 'Value is nil in key-value pair.')
 			local key, value;
 			if (props.keyType == 'global') then
-				key = EvaluateString(props.key);
+				key = Reference(props.key);
 			else
 				key = props.key;
 			end
 			if (props.type == 'global') then
-				value = EvaluateString(props.value);
+				value = Reference(props.value);
 			else
 				value = props.value;
 			end
@@ -256,12 +278,12 @@ Renderer = setmetatable({
 			assert(object[key] ~= nil, ('Failed to set key-value pair: [%q] = %q'):format(tostring(key), tostring(value)))
 		end;
 	-------------------------------------------------------
-	ResizeBounds = RenderOnParent;
+	ResizeBounds = ComplexType;
 	-------------------------------------------------------
 		minResize = Dimension;
 		maxResize = Dimension;
 	-------------------------------------------------------
-	Scripts = RenderOnParent;
+	Scripts = ComplexType;
 	-------------------------------------------------------
 		OnLoad = function(props, object, tag)
 			SetObjectScript('OnLoad', props, object, tag)(object)
@@ -291,59 +313,133 @@ Renderer = setmetatable({
 --[[ 
 	-- TODO: map all
 
-	<xs:element name="Animations" substitutionGroup="LayoutField"
+	<xs:element name="Actor" type="ModelSceneActorType" substitutionGroup="UiField"/>
+	<xs:element name="AnimationGroup" type="AnimationGroupType" substitutionGroup="UiField"/>
+	<xs:element name="Attribute" type="AttributeType"/>
+	<xs:element name="Attributes" type="AttributesType" substitutionGroup="FrameField"/>
+	<xs:element name="BarColor" type="ui:ColorType" substitutionGroup="StatusBarField"/>
+	<xs:element name="ControlPoints" type="ControlPointsType"/>
+	<xs:element name="Font" type="FontType"/>
+	<xs:element name="FontFamily" type="FontFamilyType" substitutionGroup="UiField"/>
+	<xs:element name="FontHeight" type="Value"/>
+	<xs:element name="FontHeight" type="Value"/>
+	<xs:element name="FontStringHeader1" type="ui:FontStringType"/>
+	<xs:element name="FontStringHeader2" type="ui:FontStringType"/>
+	<xs:element name="FontStringHeader3" type="ui:FontStringType"/>
+	<xs:element name="Frame" type="FrameType" substitutionGroup="FrameRef"/>
+	<xs:element name="Gradient" type="GradientType" substitutionGroup="TextureField"/>
+	<xs:element name="KeyValue" type="KeyValueType"/>
+	<xs:element name="KeyValues" type="KeyValuesType"/>
+	<xs:element name="LayoutFrame" type="LayoutFrameType"/
+	<xs:element name="Member" type="FontMemberType"/>
+	<xs:element name="Offset" type="Dimension"/>
+	<xs:element name="Origin" type="AnimOriginType"/>
+	<xs:element name="Rect" type="RectType"/>
+	<xs:element name="ScopedModifier" type="ScopedModifierType" minOccurs="0" maxOccurs="unbounded"/>
+	<xs:element name="Scripts" type="ActorScriptsType" minOccurs="0" maxOccurs="unbounded"/>
+	<xs:element name="Scripts" type="AnimGroupScriptsType"/>
+	<xs:element name="Scripts" type="AnimScriptsType"/>
+	<xs:element name="Shadow" type="ShadowType"/>
+	<xs:element name="TextInsets" type="Inset"/>
+	<xs:element name="ViewInsets" type="Inset"/>
 
-	<xs:element name="Translation" type="TranslationType" substitutionGroup="Animation"
-	<xs:element name="LineTranslation" type="LineTranslationType" substitutionGroup="Animation"
-	<xs:element name="Rotation" type="RotationType" substitutionGroup="Animation"
-	<xs:element name="Scale" type="ScaleType" substitutionGroup="Animation"
-	<xs:element name="LineScale" type="LineScaleType" substitutionGroup="Animation"
-	<xs:element name="Alpha" type="AlphaType" substitutionGroup="Animation"
-	<xs:element name="Path" type="PathType" substitutionGroup="Animation"
-	<xs:element name="FlipBook" type="FlipBookType" substitutionGroup="Animation"
-	<xs:element name="TextureCoordTranslation" type="TextureCoordTranslationType" substitutionGroup="Animation"
+	<xs:element name="KeyValues" type="KeyValuesType" substitutionGroup="LayoutField"/>
+	<xs:element name="Scripts" type="ScriptsType" substitutionGroup="LayoutField"/>
 
-	<xs:element name="Frames" substitutionGroup="FrameField"
+	<xs:element name="AnimationRef" abstract="true" substitutionGroup="UiField"/>
+	<xs:element name="ButtonField" abstract="true"/>
+	<xs:element name="CheckButtonField" abstract="true"/>
+	<xs:element name="FrameField" abstract="true"/>
+	<xs:element name="FrameRef" abstract="true" type="FrameRefType" substitutionGroup="LayoutFrameRef"/>
+	<xs:element name="LayoutField" abstract="true"/>
+	<xs:element name="LayoutFrameRef" abstract="true" type="LayoutFrameRefType" substitutionGroup="UiField"/>
+	<xs:element name="ScrollFrameField" abstract="true"/>
+	<xs:element name="StatusBarField" abstract="true"/>
+	<xs:element name="TextureField" abstract="true"/>
+	<xs:element name="UiField" abstract="true"/>
 
-	<xs:element name="UnitPositionFrame" type="UnitPositionFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Button" type="ButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="CheckButton" type="CheckButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="StatusBar" type="StatusBarType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Slider" type="SliderType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="EditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ColorSelect" type="ui:ColorSelectType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Model" type="ModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ModelFFX" type="ModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="SimpleHTML" type="ui:SimpleHTMLType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="MessageFrame" type="MessageFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ScrollingMessageFrame" type="ScrollingMessageFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ScrollFrame" type="ScrollFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="MovieFrame" type="MovieFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="WorldFrame" type="WorldFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="GameTooltip" type="GameTooltipType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Cooldown" type="CooldownType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="QuestPOIFrame" type="QuestPOIFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ArchaeologyDigSiteFrame" type="ArchaeologyDigSiteFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ScenarioPOIFrame" type="ScenarioPOIFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Minimap" type="MinimapType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="PlayerModel" type="PlayerModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="DressUpModel" type="DressUpModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="TabardModel" type="TabardModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="CinematicModel" type="CinematicModelType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="UiCamera" type="UiCameraType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="TaxiRouteFrame" type="TaxiRouteFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Browser" type="BrowserType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="Checkout" type="CheckoutType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="FogOfWarFrame" type="FogOfWarFrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ModelScene" type="ModelSceneType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="OffScreenFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ContainedAlertFrame" type="ButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="DropDownToggleButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="EventEditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="EventFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="EventButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="ItemButton" type="ButtonType" substitutionGroup="ui:FrameRef"/
-	<xs:element name="TestFrame" type="FrameType" substitutionGroup="ui:FrameRef"/
+	<xs:element name="FontString" type="FontStringType" substitutionGroup="LayoutFrameRef"/>
+	<xs:element name="Line" type="LineType" substitutionGroup="LayoutFrameRef"/>
+
+	<xs:element name="BarTexture" type="TextureType" substitutionGroup="StatusBarField"/>
+	<xs:element name="BlingTexture" type="TextureType"/>
+	<xs:element name="CheckedTexture" type="TextureType" substitutionGroup="CheckButtonField"/>
+	<xs:element name="ColorValueTexture" type="TextureType"/>
+	<xs:element name="ColorValueThumbTexture" type="TextureType"/>
+	<xs:element name="ColorWheelTexture" type="TextureType"/>
+	<xs:element name="ColorWheelThumbTexture" type="TextureType"/>
+	<xs:element name="DisabledCheckedTexture" type="TextureType" substitutionGroup="CheckButtonField"/>
+	<xs:element name="EdgeTexture" type="TextureType"/>
+	<xs:element name="SwipeTexture" type="TextureType"/>
+	<xs:element name="Texture" type="TextureType" substitutionGroup="LayoutFrameRef"/>
+	<xs:element name="ThumbTexture" type="TextureType"/>
+
+	<xs:element name="Alpha" type="AlphaType" substitutionGroup="AnimationRef"/>
+	<xs:element name="Animation" type="AnimationType" substitutionGroup="AnimationRef"/>
+	<xs:element name="FlipBook" type="FlipBookType" substitutionGroup="AnimationRef"/>
+	<xs:element name="LineScale" type="LineScaleType" substitutionGroup="AnimationRef"/>
+	<xs:element name="LineTranslation" type="LineTranslationType" substitutionGroup="AnimationRef"/>
+	<xs:element name="Path" type="PathType" substitutionGroup="AnimationRef"/>
+	<xs:element name="Rotation" type="RotationType" substitutionGroup="AnimationRef"/>
+	<xs:element name="Scale" type="ScaleType" substitutionGroup="AnimationRef"/>
+	<xs:element name="TextureCoordTranslation" type="TextureCoordTranslationType" substitutionGroup="AnimationRef"/>
+	<xs:element name="Translation" type="TranslationType" substitutionGroup="AnimationRef"/>
+
+	<xs:element name="ButtonText" type="FontStringType" substitutionGroup="ButtonField"/>
+	<xs:element name="DisabledFont" type="ButtonStyleType" substitutionGroup="ButtonField"/>
+	<xs:element name="HighlightFont" type="ButtonStyleType" substitutionGroup="ButtonField"/>
+	<xs:element name="NormalFont" type="ButtonStyleType" substitutionGroup="ButtonField"/>
+	<xs:element name="PushedTextOffset" type="Dimension" substitutionGroup="ButtonField"/>
+
+	<xs:element name="Color" type="ColorType" substitutionGroup="TextureField"/>
+	<xs:element name="Color" type="ColorType"/>
+	<xs:element name="FogColor" type="ColorType"/>
+	<xs:element name="HighlightColor" type="ColorType"/>
+	<xs:element name="MaxColor" type="ColorType"/>
+	<xs:element name="MinColor" type="ColorType"/>
+	<xs:element name="DisabledColor" type="ColorType" substitutionGroup="ButtonField"/>
+	<xs:element name="HighlightColor" type="ColorType" substitutionGroup="ButtonField"/>
+	<xs:element name="NormalColor" type="ColorType" substitutionGroup="ButtonField"/>
+
+	<xs:element name="ArchaeologyDigSiteFrame" type="ArchaeologyDigSiteFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Browser" type="BrowserType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Button" type="ButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="CheckButton" type="CheckButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Checkout" type="CheckoutType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="CinematicModel" type="CinematicModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ColorSelect" type="ui:ColorSelectType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ContainedAlertFrame" type="ButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Cooldown" type="CooldownType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="DressUpModel" type="DressUpModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="DropDownToggleButton" type="ButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="EditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="EventButton" type="ButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="EventEditBox" type="EditBoxType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="EventFrame" type="FrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="FogOfWarFrame" type="FogOfWarFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="GameTooltip" type="GameTooltipType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ItemButton" type="ButtonType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="MessageFrame" type="MessageFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Minimap" type="MinimapType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Model" type="ModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ModelFFX" type="ModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ModelScene" type="ModelSceneType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="MovieFrame" type="MovieFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="OffScreenFrame" type="FrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="PlayerModel" type="PlayerModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="QuestPOIFrame" type="QuestPOIFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ScenarioPOIFrame" type="ScenarioPOIFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ScrollFrame" type="ScrollFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="ScrollingMessageFrame" type="ScrollingMessageFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="SimpleHTML" type="ui:SimpleHTMLType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="Slider" type="SliderType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="StatusBar" type="StatusBarType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="TabardModel" type="TabardModelType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="TaxiRouteFrame" type="TaxiRouteFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="TestFrame" type="FrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="UiCamera" type="UiCameraType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="UnitPositionFrame" type="UnitPositionFrameType" substitutionGroup="ui:FrameRef"/>
+	<xs:element name="WorldFrame" type="WorldFrameType" substitutionGroup="ui:FrameRef"/>
 ]]
 
 -------------------------------------------------------

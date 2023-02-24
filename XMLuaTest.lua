@@ -39,23 +39,51 @@ test = XML() {
 			Button .parentKey 'Button1' .inherits 'SecureActionButtonTemplate' {
 				buttonSize;
 				Anchors {
-					Anchor .point 'LEFT';
+					Anchor .point 'LEFT' {
+						Offset .x(0) .y(0);
+					};
 				};
 				Attributes {
-					Attribute .name 'action' .type 'number' .value (1);
+					Attribute .name 'action' .type 'string' .value (1);
 					actionButtonType;
 					playerUnitAttribute;
 				};
 				Layers {
 					Layer .level 'BACKGROUND' {
 						Texture .parentKey 'Icon' .setAllPoints (true) {
-							Color .r (0) .g (0) .b(1) .a(0.5);
+							Color .color (RED_FONT_COLOR);
+						};
+					};
+					Layer .level 'ARTWORK' {
+						FontString .parentKey 'Name' .inherits 'Game18Font' .wordwrap (true) .justifyH 'LEFT' {
+							KeyValues {
+								KeyValue .key 'minLineHeight' .value (12) .type 'number';
+							};
+							Size .x (42) .y (18);
+							Anchors {
+								Anchor .point 'BOTTOMLEFT';
+							};
+							Color .r (1) .g (0.914) .b (0.682);
+							Shadow {
+								Offset {
+									AbsDimension .x (1) .y (1);
+								};
+								Color .r (0) .g (0) .b (0) .a(1);
+							};
 						};
 					};
 				};
 			};
 			button2;
-		}
+		};
+		ResizeBounds {
+			minResize {
+				AbsDimension .x (42) .y(42);
+			};
+			maxResize {
+				AbsDimension .x (84) .y(84);
+			};
+		};
 	}
 }
 
