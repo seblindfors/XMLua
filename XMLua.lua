@@ -136,9 +136,11 @@ function Element:__tostring()
 			innerText = k and gettext(content, k, j)
 			this, k = gettag(content, i, j)
 
-			local isClosingTag  = this:match(TAG.CLOSING)
+			local isClosingTag   = this:match(TAG.CLOSING)
+			local isPrevEnclosed = prev:match(TAG.ENCLOSED)
+			local isPrevOpening  = prev:match(TAG.OPENING)
 
-			if not isPrevClosingTag and not prev:match(TAG.ENCLOSED) and prev:match(TAG.OPENING) then
+			if not isPrevClosingTag and not isPrevEnclosed and isPrevOpening then
 				depth = depth + 1;
 			end
 			if isClosingTag then
@@ -169,6 +171,10 @@ end
 
 function Attributes:__index(key)
     if (rawget(self, '__env')) then
+    	local default = rawget(self, '__def')
+    	if (default ~= nil) then
+    		return default;
+    	end
         return nilproxy;
     end
 end
@@ -179,11 +185,12 @@ function Attributes:__call(input, stack)
 
     if isFetching then
         setfenv(self.__stack, self.__env)
-        self.__env, self.__stack = nil;
+        self.__env, self.__stack, self.__def = nil;
         return scrub(unpack(input))
     else
         self.__env   = getfenv(stackLevel)
         self.__stack = stackLevel;
+        self.__def   = input;
         setfenv(stackLevel, self)
     end
     return self;
