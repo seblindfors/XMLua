@@ -1,4 +1,5 @@
 <Ui>
 	<Script file="XMLua.lua"/>
-	<Script file="XMLuaParser.lua"/>
+	<Script file="XMLuaResolver.lua"/>
+	<Script file="XMLuaTest.lua"/>
 </Ui>

@@ -1,50 +1,92 @@
-local XML = LibStub and LibStub('XMLua') or XMLua;
+local XML, _G = LibStub and LibStub('XMLua') or XMLua, _G;
+if not useparser then
+	return
+end
 -------------------------------------------------------
 -- Mappings
 -------------------------------------------------------
 local Resolver, Props = {}, XML:GetMetadata().Element;
-local Schema, Renderer, ScriptBindingType;
+local Abstract, Renderer, Schema, ScriptBindingType = {}, {}, {};
+RND = Renderer -- debug
+
 -------------------------------------------------------
--- Helpers
+-- Resolver
 -------------------------------------------------------
-local function ThrowError(message, elem)
+function Resolver:__error(message, elem)
 	-- TODO: limit output length, it gets ridiculously detailed
 	error(('%s\nin tag:\n%s\n'):format(message:gsub('^.+XMLuaParser.lua:%d+: ', ''), tostring(elem)), 4)
 end
 
-local function FindMethod(key, map, haystack)
-	if map[key] then return map[key] end;
-	local needle = key:lower():gsub('^set', '');
-	for name, method in pairs(haystack or getmetatable(object).__index) do
-		if (not name:match('^Get') and name:gsub('^Set', ''):lower() == needle) then
-			map[key] = method;
-			print(('Mapping %s for %s'):format(key, name))
-			return method;
+function Resolver:__call(targetObj, tag, parentProps, parentName, subRenderer)
+	local name    = rawget(self, Props.Name)
+	local props   = rawget(self, Props.Attributes)
+	local content = rawget(self, Props.Content)
+
+	local render = (subRenderer or Renderer)[name];
+	assert(render, ('Element %s not recognized in %s.'):format(name, parentName or 'root'))
+	
+	local object, parentKey, childRenderer = render(props, targetObj, tag, parentProps, parentName);
+
+	if (object and type(content) == 'table') then
+		for index, elem in ipairs(content) do
+			local isOK, result, childKey = pcall(elem, object, elem, props, name, childRenderer)
+			if not isOK then
+				print(result)
+				--Resolver:ThrowException(result, elem)
+			end
+			if childKey then
+				rawset(object, childKey, result)
+			end
 		end
 	end
+
+	return object, parentKey;
+end
+
+XML:SetResolver(Resolver)
+
+-------------------------------------------------------
+-- Helpers
+-------------------------------------------------------
+local function Declare(env, base)
+	if base then
+		setmetatable(env, {__index = base})
+	end
+	setfenv(2, setmetatable({}, {
+		__index = function(self, key)
+			return rawget(env, key) or _G[key];
+		end;
+		__newindex = function(self, key, value)
+			rawset(env, key, value)
+		end;
+	}))
+end
+
+local function FindMethodInner(key, needle, map, haystack, ...)
+	if haystack then
+		for name, method in pairs(haystack) do
+			if (not name:match('^Get') and name:gsub('^Set', ''):lower() == needle) then
+				map[key] = method;
+				--print(('Mapping %s for %s'):format(key, name))
+				return method;
+			end
+		end
+		return FindMethodInner(key, needle, map, ...)
+	end
+end
+
+local function FindMethod(key, map, ...)
+	if map[key] then return map[key] end;
+	local needle = key:lower():gsub('^set', '');
+	return FindMethodInner(key, needle, map, ...)
 end
 
 local function CallMethodOnObject(object, method, ...)
 	assert(object, 'Missing target widget.')
 	assert(method, 'Missing target method.')
-	local func = assert(FindMethod(method, Schema[object:GetObjectType()]),
+	local func = assert(FindMethod(method, Schema[object:GetObjectType()], getmetatable(object).__index),
 		('Could not find target method for %q.'):format(method))
 	return func(object, ...)
-end
-
-local function SetObjectProps(objType, object, props)
-	local index = getmetatable(object).__index;
-	local map = Schema[objType];
-	for key, val in pairs(props) do
-		local func = FindMethod(key, map, index);
-		if not func then
-			print(('Missing prop handler for %s: %s'):format(objType, key))
-		end
-		if func then
-			func(object, val)
-		end
-	end
-	return object, props.parentKey;
 end
 
 local function SetObjectScript(scriptType, props, object, tag)
@@ -93,8 +135,24 @@ end
 -------------------------------------------------------
 -- Factory
 -------------------------------------------------------
+local function Instantiate(objType, object, props)
+	local index = getmetatable(object).__index;
+	local map = Schema[objType];
+	for key, val in pairs(props) do
+		local func = FindMethod(key, map, index);
+		if not func then
+			print(('Missing prop handler for %s: %s'):format(objType, key))
+		end
+		if func then
+			func(object, val)
+		end
+	end
+	return object, props.parentKey, rawget(Renderer, object:GetObjectType());
+end
+
 local function CreateObjectFrame(objType, props, object)
-	return SetObjectProps(objType, CreateFrame(objType,
+	print(objType)
+	return Instantiate(objType, CreateFrame(objType,
 		props.name,
 		props.parent or object,
 		props.inherits,
@@ -103,17 +161,42 @@ local function CreateObjectFrame(objType, props, object)
 end
 
 local function CreateLayoutFrame(objType, props, object, parentProps)
-	return SetObjectProps(objType, CallMethodOnObject(object, 'Create' .. objType,
+	return Instantiate(objType, CallMethodOnObject(object, 'Create' .. objType,
 		props.name,
 		parentProps.level,
 		props.inherits,
-		props.textureSubLevel
+		parentProps.textureSubLevel
 	), props)
+end
+
+-------------------------------------------------------
+-- Metatypes
+-------------------------------------------------------
+local function NewObject(objType)
+	return GenerateClosure(CreateObjectFrame, objType)
+end
+
+local function UnknownFrameType(self, objType)
+	print('reached', objType)
+	return rawget(rawset(self, objType, NewObject(objType)), objType)
+end
+
+local function UnknownSchemaType(self, objType)
+	return rawget(rawset(self, objType, setmetatable({}, {__index = self.Shared})), objType)
+end
+
+local function Script(self, objType)
+	return rawget(rawset(self, objType, GenerateClosure(SetObjectScript, objType)), objType)
+end
+
+local function BaseRenderer(self, objType)
+	return rawget(rawset(self, objType, Renderer[objType]), objType)
 end
 
 -------------------------------------------------------
 -- Types
 -------------------------------------------------------
+
 local function LayoutFrame(props, object, tag, parentProps)
 	local objType = rawget(tag, Props.Name)
 	return CreateLayoutFrame(objType, props, object, parentProps)
@@ -133,133 +216,108 @@ local function Dimension(props, object, tag)
 	};
 end
 
+local function ColorType(props)
+	local color = _G[props.color] or props.color or CreateColor(props() {r, g, b, a})
+	assert(color:GetRGB())
+	return color;	
+end
+
 local function TextureType(props, object, tag, parentProps)
 	local objType = rawget(tag, Props.Name)
+	print(objType, tag)
 	local frame = CreateLayoutFrame('Texture', props, object, parentProps)
 	CallMethodOnObject(object, 'Set'..objType, frame)
 	return frame;
 end
 
-local function ComplexType(_, object)
+local function WrapperType(_, object)
 	return object; -- returns the current object, essentially skip
 end
+
+local function ComplexType(...)
+	local subset = select(select('#', ...), ...)
+	local default = ...;
+	return setmetatable(subset, {
+		__index = default ~= subset and default or nil;
+		__call = function(self, _, object)
+			return object, nil, self;
+		end;
+	});
+end
+
+-- TODO: not working properly
+local function Factory(factory, subset)
+	return setmetatable({}, {
+		__index = subset;
+		__call = function(self, ...)
+			local object, parentKey = factory(...)
+			return object, parentKey, self;
+		end;
+	})
+end
+
+local function Extend(base, subset)
+	return setmetatable(subset or {}, {__index = base});
+end
+
+-------------------------------------------------------
+-- Misc
+-------------------------------------------------------
+ScriptBindingType = setmetatable({
+	precall  = LE_SCRIPT_BINDING_TYPE_INTRINSIC_PRECALL;
+	postcall = LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL;
+}, {__index = function() return LE_SCRIPT_BINDING_TYPE_EXTRINSIC end})
+
 
 -------------------------------------------------------
 -- Schema
 -------------------------------------------------------
-Schema = setmetatable({
-	Shared = {
-		name = nop;
-		inherits = nop;
-		parentKey = nop;
-		mixin = Mixin;
-	};
-}, {
-	__index = function(self, key)
-		return rawget(rawset(self, key, setmetatable({}, {__index = self.Shared})), key)
-	end;
-});
+Declare(Schema, UnknownSchemaType);
+
+Shared = {
+	name = nop;
+	inherits = nop;
+	parentKey = nop;
+	mixin = Mixin;
+};
 
 -------------------------------------------------------
--- Renderer
+-- Abstract
 -------------------------------------------------------
-Renderer = setmetatable({
-	---------------------------------------------------
+Declare(Abstract);
+
+Base = ComplexType {
 	AbsDimension = function(props, targetProps)
 		return CallMethodOnObject(targetProps.target, targetProps.method, props() {x, y} )
 	end;
-	---------------------------------------------------
-	Anchors = ComplexType;
-	---------------------------------------------------
+};
+
+Region = Extend(Base, {
+	Size = function(props, object, tag)
+		local x, y = props() {x, y};
+		if (x and y) then
+			return object:SetSize(x, y)
+		elseif (x) then
+			return object:SetWidth(x)
+		elseif (y) then
+			return object:SetHeight(y)
+		end
+		return Dimension(props, object, tag)
+	end;
+	Anchors = ComplexType {
 		Anchor = function(props, object, tag)
 			return SetPoint(object.SetPoint, props, object, tag)
+		end; -- TODO: support <Offset> and <AbsDimension> properly
+	};
+});
+
+ScriptRegion = Extend(Region, {
+	Scripts = ComplexType(Script, {
+		OnLoad = function(props, object, tag)
+			SetObjectScript('OnLoad', props, object, tag)(object)
 		end;
-	---------------------------------------------------
-	Animations = ComplexType;
-	---------------------------------------------------
-		AnimationGroup = function(props, object)
-			return SetObjectProps('AnimationGroup', object:CreateAnimationGroup(
-				props.name
-			), props)
-		end;
-	-------------------------------------------------------
-	Attributes = ComplexType;
-	-------------------------------------------------------
-		Attribute = function(props, object)
-			local name, value = props() {name, value};
-			assert(type(name) ~= nil, 'Attribute name is nil.')
-			assert(type(value) ~= nil, 'Attribute value is nil.')
-			if (props.type) then
-				assert(type(value) == props.type, 'Attribute has invalid type.')
-			end
-			return object:SetAttribute(name, value)
-		end;
-	-------------------------------------------------------
-	Frames = ComplexType;
-	-------------------------------------------------------
-	HitRectInsets = function(props, object)
-		return object:SetHitRectInsets(props() {left, right, top, bottom})
-	end;
-	-------------------------------------------------------
-	Layers = ComplexType;
-	-------------------------------------------------------
-		Layer = ComplexType;
-		---------------------------------------------------
-			Color = function(props, object)
-				local color = _G[props.color] or props.color or CreateColor(props() {r, g, b, a})
-				assert(color:GetRGB())
-				if C_Widget.IsWidget(object) then
-					return (object.SetColorTexture or object.SetTextColor)(object, color:GetRGBA())
-				end
-				return CallMethodOnObject(object.target, object.method .. 'Color', color:GetRGBA())
-			end;
-			-----------------------------------------------
-			FontString = LayoutFrame;
-			-----------------------------------------------
-			Line = LayoutFrame;
-			-----------------------------------------------
-				StartAnchor = function(props, object, tag)
-					return SetPoint(object.SetStartPoint, props, object, tag)
-				end;
-				-------------------------------------------
-				EndAnchor = function(props, object, tag)
-					return SetPoint(object.SetEndPoint, props, object, tag)
-				end;
-			-----------------------------------------------
-			MaskTexture = LayoutFrame;
-			-----------------------------------------------
-				MaskedTextures = ComplexType;
-				-------------------------------------------
-					MaskedTexture = function(props, object)
-						local childKey, target = props() {childKey, target};
-						if not C_Widget.IsWidget(target) then
-							target = assert(childKey and assert(object:GetParent()[childKey],
-								'Child key does not exist on parent.')
-								or Reference(target),
-								'Target mask texture does not exist.'
-							);
-						end
-						return target:AddMaskTexture(object)
-					end;
-			-----------------------------------------------
-			Texture = LayoutFrame;
-			-----------------------------------------------
-				DisabledTexture = TextureType;
-				HighlightTexture = TextureType;
-				NormalTexture = TextureType;
-				PushedTexture = TextureType;
-			-----------------------------------------------
-			Shadow = Dimension;
-			-----------------------------------------------
-			Offset = function(props, object, tag)
-				if (props.x or props.y) then
-					return Renderer.AbsDimension(props, object)
-				end
-				return Dimension(props, object, tag)
-			end;
-	-------------------------------------------------------
-	KeyValues = ComplexType;
-	-------------------------------------------------------
+	});
+	KeyValues = ComplexType {
 		KeyValue = function(props, object)
 			assert(type(props.key) ~= nil, 'Key is nil in key-value pair.')
 			assert(type(props.value) ~= nil, 'Value is nil in key-value pair.')
@@ -275,40 +333,114 @@ Renderer = setmetatable({
 				value = props.value;
 			end
 			object[key] = value;
-			assert(object[key] ~= nil, ('Failed to set key-value pair: [%q] = %q'):format(tostring(key), tostring(value)))
+			assert(object[key] ~= nil,
+				('Failed to set key-value pair: [%q] = %q'):format(tostring(key), tostring(value)))
 		end;
-	-------------------------------------------------------
-	ResizeBounds = ComplexType;
-	-------------------------------------------------------
-		minResize = Dimension;
-		maxResize = Dimension;
-	-------------------------------------------------------
-	Scripts = ComplexType;
-	-------------------------------------------------------
-		OnLoad = function(props, object, tag)
-			SetObjectScript('OnLoad', props, object, tag)(object)
-		end;
-	-------------------------------------------------------
-	Size = function(props, object, tag)
-		local x, y = props() {x, y};
-		if (x and y) then
-			return object:SetSize(x, y)
-		elseif (x) then
-			return object:SetWidth(x)
-		elseif (y) then
-			return object:SetHeight(y)
-		end
-		return Dimension(props, object, tag)
+	};
+});
+
+TextureBase = Extend(ScriptRegion, {
+	Color = function(props, object)
+		local color = ColorType(props)
+		object:SetColorTexture(color:GetRGBA())
 	end;
-	-------------------------------------------------------
-}, {
-	__index = function(self, objType)
-		return rawget(rawset(self, objType, (objType:match('^On%w+') or objType:match('^P%w+Click$')) and
-			GenerateClosure(SetObjectScript, objType) or
-			GenerateClosure(CreateObjectFrame, objType)
-		), objType)
-	end
-})
+});
+
+-------------------------------------------------------
+-- Renderer
+-------------------------------------------------------
+Declare(Renderer, UnknownFrameType);
+
+Frame = Factory(NewObject('Frame'), Extend(Abstract.ScriptRegion, {
+	Frames = WrapperType;
+	Attributes = ComplexType {
+		Attribute = function(props, object)
+			local name, value = props() {name, value};
+			assert(type(name) ~= nil, 'Attribute name is nil.')
+			assert(type(value) ~= nil, 'Attribute value is nil.')
+			if (props.type) then
+				assert(type(value) == props.type, 'Attribute has invalid type.')
+			end
+			return object:SetAttribute(name, value)
+		end;
+	};
+	Animations = ComplexType {
+		AnimationGroup = function(props, object)
+			return Instantiate('AnimationGroup', object:CreateAnimationGroup(
+				props.name
+			), props)
+		end;
+	};
+	HitRectInsets = function(props, object)
+		return object:SetHitRectInsets(props() {left, right, top, bottom})
+	end;
+	Layers = ComplexType {
+		Layer = ComplexType {
+			FontString = Factory(LayoutFrame, Extend(Abstract.ScriptRegion, {
+				Color = function(props, object)
+					local color = ColorType(props)
+					return object:SetTextColor(color:GetRGBA())
+				end;
+				Shadow = Factory(Dimension, {
+					Offset = Factory(function(props, object, tag)
+						if (props.x or props.y) then
+							return Abstract.Base.AbsDimension(props, object)
+						end
+						return Dimension(props, object, tag)
+					end, Extend(Base));
+					Color = function(props, object)
+						local color = ColorType(props)
+						return object.target:SetShadowColor(color:GetRGBA())
+					end;
+				});
+			}));
+			Texture = Factory(LayoutFrame, Abstract.TextureBase);
+			Line = Factory(LayoutFrame, Extend(Abstract.TextureBase, {
+				StartAnchor = function(props, object, tag)
+					return SetPoint(object.SetStartPoint, props, object, tag)
+				end;
+				EndAnchor = function(props, object, tag)
+					return SetPoint(object.SetEndPoint, props, object, tag)
+				end;
+			}));
+			MaskTexture = Factory(LayoutFrame, {
+				MaskedTextures = ComplexType {
+					MaskedTexture = function(props, object)
+						local childKey, target = props() {childKey, target};
+						if not C_Widget.IsWidget(target) then
+							target = assert(childKey and assert(object:GetParent()[childKey],
+								'Child key does not exist on parent.')
+								or Reference(target),
+								'Target mask texture does not exist.'
+							);
+						end
+						return target:AddMaskTexture(object)
+					end;
+				};
+			});
+		};
+	};
+}));
+
+Button = Factory(NewObject('Button'), Extend(Frame, {
+	DisabledTexture = Factory(TextureType, Abstract.TextureBase);
+	HighlightTexture = Factory(TextureType, Abstract.TextureBase);
+	NormalTexture = Factory(TextureType, Abstract.TextureBase);
+	PushedTexture = Factory(TextureType, Abstract.TextureBase);
+}));
+
+CheckButton = Factory(NewObject('CheckButton'), Extend(Button, {
+	CheckedTexture = Factory(TextureType, Abstract.TextureBase);
+	DisabledCheckedTexture = Factory(TextureType, Abstract.TextureBase);
+}));
+
+-------------------------------------------------------
+
+ResizeBounds = WrapperType;
+	minResize = Dimension;
+	maxResize = Dimension;
+-------------------------------------------------------
+
 
 --[[ 
 	-- TODO: map all
@@ -441,38 +573,3 @@ Renderer = setmetatable({
 	<xs:element name="UnitPositionFrame" type="UnitPositionFrameType" substitutionGroup="ui:FrameRef"/>
 	<xs:element name="WorldFrame" type="WorldFrameType" substitutionGroup="ui:FrameRef"/>
 ]]
-
--------------------------------------------------------
--- Resolver
--------------------------------------------------------
-function Resolver:__call(...)
-	local name    = rawget(self, Props.Name)
-	local props   = rawget(self, Props.Attributes)
-	local content = rawget(self, Props.Content)
-
-	local object, parentKey = Renderer[name](props, ...)
-	if (object and type(content) == 'table') then
-		for index, elem in ipairs(content) do
-			local isOK, result, childKey = pcall(elem, object, elem, props, name)
-			if not isOK then
-				ThrowError(result, elem)
-			end
-			if childKey then
-				rawset(object, childKey, result)
-			end
-		end
-	end
-
-	--print('Test:', rawget(self, Props.Name))
-	return object, parentKey;
-end
-
-XML:SetResolver(Resolver)
-
--------------------------------------------------------
--- Misc
--------------------------------------------------------
-ScriptBindingType = setmetatable({
-	precall  = LE_SCRIPT_BINDING_TYPE_INTRINSIC_PRECALL;
-	postcall = LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL;
-}, {__index = function() return LE_SCRIPT_BINDING_TYPE_EXTRINSIC end})

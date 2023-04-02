@@ -7,8 +7,21 @@ local playerUnitAttribute = XML.Attribute .name 'unit' .value 'player';
 local actionButtonType = XML.Attribute .name 'type' .value 'action';
 local buttonSize = XML.Size .x(42) .y(42);
 
-local button2 = XML() {
-	Button .parentKey 'Button2' .inherits 'SecureActionButtonTemplate, BackdropTemplate' {
+xmltest = XML() {
+	Frame .name 'CustomActionBarFrame' .inherits 'SecureHandlerBaseTemplate' .parent(UIParent) .alpha(0.5) .clipChildren(true) {
+		Size .x (84) .y (42);
+		Anchors {
+			Anchor .point 'CENTER' .relativeTo (UIParent) {
+				Offset .x(0) .y(100);
+			};
+		};
+	};
+}
+
+print(xmltest())
+
+--[[local button2 = XML() {
+	IndexButton .parentKey 'Button2' .inherits 'SecureActionButtonTemplate, BackdropTemplate' {
 		buttonSize;
 		Anchors {
 			Anchor .point 'LEFT' .relativeKey '$parent.Button1' .relativePoint 'RIGHT' .x (10);
@@ -19,6 +32,9 @@ local button2 = XML() {
 		};
 		KeyValues {
 			KeyValue .key 'backdropInfo' .value 'BACKDROP_CALLOUT_GLOW_0_20' .type 'global';
+		};
+		HighlightTexture .parentKey 'Hilite' .setAllPoints(true) {
+			Color .r(1) .g(1) .b(1);
 		};
 		Scripts {
 			OnEnter (onenter);
@@ -44,7 +60,7 @@ test = XML() {
 					};
 				};
 				Attributes {
-					Attribute .name 'action' .type 'string' .value (1);
+					Attribute .name 'action' .type 'number' .value (1);
 					actionButtonType;
 					playerUnitAttribute;
 				};
@@ -88,4 +104,4 @@ test = XML() {
 }
 
 --print(test)
-print(test())
+print(test()) ]]

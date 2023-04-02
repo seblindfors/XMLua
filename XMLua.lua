@@ -18,6 +18,14 @@ else
 end
 
 -------------------------------------------------------
+-- Upvalues
+-------------------------------------------------------
+local rawset, rawget = rawset, rawget;
+local setmetatable, getmetatable = setmetatable, getmetatable;
+local setfenv, getfenv = setfenv, getfenv;
+local table, tostring = table, tostring;
+
+-------------------------------------------------------
 -- Tag handling
 -------------------------------------------------------
 local TAG = {
@@ -49,6 +57,8 @@ local function gettag(str, start, stop) return str:sub(start, stop), stop + 1 en
 
 local function isstring(obj) return type(obj) == 'string' and obj:len() > 0 end;
 local function istable(obj)  return type(obj) == 'table' end;
+local function isbool(obj)   return type(obj) == 'boolean' end;
+local function isproxy(obj)  return type(obj) == 'userdata' end;
 
 -------------------------------------------------------
 -- Indentation handling
@@ -102,6 +112,11 @@ function Element:__call(...)
 	end
 
 	return self;
+end
+
+function Element:__concat(sibling)
+	local content = rawget(self, Props.Content)
+	return self
 end
 
 function Element:__tostring()
@@ -161,7 +176,10 @@ end
 -------------------------------------------------------
 -- Attributes prototype
 -------------------------------------------------------
-local Attributes, nilproxy = {}, newproxy();
+local Attributes, nilproxy, Modes = {}, newproxy(), {
+	Consume   = true;
+	Enumerate = false;
+};
 
 local function scrub(v, ...)
     if (v == nil) then return end;
@@ -181,17 +199,28 @@ end
 
 function Attributes:__call(input, stack)
     local isFetching = istable(input)
-    local stackLevel = stack or 2;
 
     if isFetching then
         setfenv(self.__stack, self.__env)
         self.__env, self.__stack, self.__def = nil;
         return scrub(unpack(input))
     else
+    	local stackLevel = stack or 2;
+    	local consume    = not not input;
+
         self.__env   = getfenv(stackLevel)
         self.__stack = stackLevel;
         self.__def   = input;
-        setfenv(stackLevel, self)
+
+        if consume then
+        	setfenv(stackLevel, setmetatable({}, {__index = function(_, key)
+        		local value = self[key];
+        		rawset(self, key, nil)
+        		return value;
+        	end}))
+        else
+        	setfenv(stackLevel, self)
+        end
     end
     return self;
 end
@@ -202,6 +231,7 @@ end
 local Metadata = {
 	Tags = TAG;
 	Element = Props;
+	Attributes = Modes;
 };
 
 -------------------------------------------------------
@@ -292,6 +322,7 @@ function XML:SetResolver(resolver)
 	for k, v in pairs(resolver) do
 		rawset(Resolver, k, v)
 	end
+	return self;
 end
 
 function XML:SetIndentationLevel(level)

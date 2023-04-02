@@ -8,4 +8,3 @@
 ## X-Website: https://github.com/seblindfors/XMLua
 
 XMLua.xml
-XMLuaTest.lua
