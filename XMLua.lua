@@ -57,8 +57,6 @@ local function gettag(str, start, stop) return str:sub(start, stop), stop + 1 en
 
 local function isstring(obj) return type(obj) == 'string' and obj:len() > 0 end;
 local function istable(obj)  return type(obj) == 'table' end;
-local function isbool(obj)   return type(obj) == 'boolean' end;
-local function isproxy(obj)  return type(obj) == 'userdata' end;
 
 -------------------------------------------------------
 -- Indentation handling
@@ -93,6 +91,7 @@ local Element, Props = {}, {
 	Attributes       = '__attrs';
 	Content          = '__content';
 	CurrentAttribute = '__curr';
+	Printer          = tostring;
 };
 
 function Element:__index(key)
@@ -116,7 +115,7 @@ end
 
 function Element:__concat(sibling)
 	local content = rawget(self, Props.Content)
-	return self
+	return self;
 end
 
 function Element:__tostring()
@@ -126,7 +125,7 @@ function Element:__tostring()
 		local children = {};
 
 		for index, child in ipairs(content) do
-			children[index] = tostring(child)
+			children[index] = Props.Printer(child)
 		end
 
 		content = table.concat(children, TAG.NONE)
@@ -136,7 +135,7 @@ function Element:__tostring()
 	local tag = TAG.BEGIN:format(name);
 
 	for attrname, attrvalue in pairs(rawget(self, Props.Attributes)) do
-		tag = TAG.ATTRIBUTE:format(tag, attrname, tostring(attrvalue));
+		tag = TAG.ATTRIBUTE:format(tag, attrname, Props.Printer(attrvalue));
 	end
 
 	if isstring(content) then
@@ -274,10 +273,10 @@ end
 -------------------------------------------------------
 -- Document factory
 -------------------------------------------------------
-local _G, useGlobals = _G;
+local isDocument, _G, lookupTable = true, _G;
 local function factory(_, key)
-	if (useGlobals) then
-		local value = _G[key];
+	if (lookupTable) then
+		local value = lookupTable[key];
 		if (value ~= nil) then
 			return value;
 		end
@@ -289,18 +288,19 @@ local xmlEnv = setmetatable({}, {__index = factory})
 
 setmetatable(XML, {
 	__index = factory;
-	__call = function(self, input, stack)
-		local isDocument = istable(input)
-		local stackLevel = stack or 2;
-
+	__call = function(self, input, stackLevel)
+		isDocument = not isDocument;
 		if isDocument then
+			assert(istable(input), 'Expected document (table of elements).')
 			setfenv(self.__stack, self.__env)
-			self.__env, self.__stack, useGlobals = nil;
+			self.__env, self.__stack, lookupTable = nil;
 			return resolve(unpack(input))
 		else
+			stackLevel   = stackLevel or 2;
+			assert(istable(input) or input == nil, 'Expected environment table (or nil to use global).')
 			self.__env   = getfenv(stackLevel)
 			self.__stack = stackLevel;
-			useGlobals   = not input;
+			lookupTable  = istable(input) and input or _G;
 			setfenv(stackLevel, xmlEnv)
 		end
 		return self;

@@ -1,5 +1,7 @@
 <Ui>
 	<Script file="XMLua.lua"/>
-	<Script file="XMLuaResolver.lua"/>
-	<Script file="XMLuaTest.lua"/>
+	<Script file="XMLua.Factory.lua"/>
+	<Script file="XMLua.Schema.lua"/>
+	<Script file="XMLua.Resolver.lua"/>
+	<Script file="XMLua.Test.lua"/>
 </Ui>

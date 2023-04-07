@@ -8,17 +8,25 @@ local actionButtonType = XML.Attribute .name 'type' .value 'action';
 local buttonSize = XML.Size .x(42) .y(42);
 
 xmltest = XML() {
-	Frame .name 'CustomActionBarFrame' .inherits 'SecureHandlerBaseTemplate' .parent(UIParent) .alpha(0.5) .clipChildren(true) {
+	Frame .name 'CustomActionBarFrame' .inherits 'SecureHandlerBaseTemplate' .frameStrata('HIGH') .parent(UIParent) .parentKey('Test') .scale(0.5) .clipChildren(true) {
 		Size .x (84) .y (42);
 		Anchors {
 			Anchor .point 'CENTER' .relativeTo (UIParent) {
 				Offset .x(0) .y(100);
 			};
 		};
+		Attributes {
+			Attribute .type('number') .name('actionpage') .value(1);
+		};
+		KeyValues {
+			KeyValue .key('statehidden') .value(true);
+		};
 	};
 }
 
-print(xmltest())
+DevTools_Dump(xmltest())
+
+
 
 --[[local button2 = XML() {
 	IndexButton .parentKey 'Button2' .inherits 'SecureActionButtonTemplate, BackdropTemplate' {
