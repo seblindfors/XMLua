@@ -19,16 +19,14 @@ end
 -------------------------------------------------------
 -- Interface resolver
 -------------------------------------------------------
-local Resolver = {};
-
-function Resolver:Assert(message, elem)
-	if not self then
-		Resolver.ThrowException(message, elem)
-	end
+local function ThrowException(message, elem)
+	error(('%s\nin tag:\n%s\n'):format(message, tostring(elem)), 4)
 end
 
-function Resolver:ThrowException(elem)
-	error(('%s\nin tag:\n%s\n'):format(self, tostring(elem)), 4)
+local function Assert(isOK, message, elem)
+	if not isOK then
+		ThrowException(message, elem)
+	end
 end
 
 local UIResolver = {__call = function(
@@ -41,9 +39,9 @@ local UIResolver = {__call = function(
 	local name, props, content = Props.Get(self)
 
 	local render = (renderer or Schema)[name]; -- TODO: handle calling xml on existing objects
-	Resolver.Assert(render, ('Element %s not recognized in %s.'):format(name, parentName or 'root'), self)
+	Assert(render, ('Element %s not recognized in %s.'):format(name, parentName or 'root'), self)
 
-	local isOK, object, parentKey = pcall(
+	local isOK, object = pcall(
 		render      , -- @param rendering function
 		-- schema   , -- @param implicit schema object
 		targetObj   , -- @param target object to render on
@@ -52,12 +50,12 @@ local UIResolver = {__call = function(
 		self        , -- @param <Element />
 		parentTag   ) -- @param <Parent />
 
-	Resolver.Assert(isOK, object, self)
+	Assert(isOK, object, self)
 
 	if (object and type(content) == 'table') then
 		for index, elem in ipairs(content) do
 			local isOK, result = pcall(elem, object, self, props, render)
-			Resolver.Assert(isOK, result, elem)
+			Assert(isOK, result, elem)
 		end
 	end
 

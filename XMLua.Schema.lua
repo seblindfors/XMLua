@@ -42,7 +42,65 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 		Object
 		-----------------------------------------------
 		. parentKey   ( AND(OR(Type.Number, Type.String), Eval.Setter) )
-		. parentArray ( Eval.ParentArray );
+		. parentArray ( Eval(function(object, key)
+			local parent = object:GetParent()
+			local parentArray = parent[key];
+			if not parentArray then
+				parentArray = {};
+				parent[key] = parentArray;
+			end
+			parentArray[#parentArray + 1] = object;
+		end) );
+
+		-----------------------------------------------
+		Anchors
+		-----------------------------------------------
+		. insert( Method.Forward )
+		{
+			-------------------------------------------
+			Anchor
+			-------------------------------------------
+			. point         ( Type.Enum.FRAMEPOINT )
+			. relativeKey   ( Type.String  )
+			. relativeTo    ( OR(Type.String, Type.Widget) )
+			. relativePoint ( Type.Enum.FRAMEPOINT )
+			. x             ( Type.Number  )
+			. y             ( Type.Number  )
+			. insert        ( AND(Method.Validate, Method.Point) )
+			{
+				---------------------------------------
+				Offset
+				---------------------------------------
+				. x      ( Type.Number )
+				. y      ( Type.Number )
+				. insert ( Method.Validate )
+				{
+					-----------------------------------
+					AbsDimension ( Method.Validate )
+					-----------------------------------
+					. x ( Type.Number )
+					. y ( Type.Number );
+				};
+			};
+		};
+
+		-----------------------------------------------
+		Insets
+		-----------------------------------------------
+		. bottom ( Type.Number )
+		. left   ( Type.Number )
+		. right  ( Type.Number )
+		. top    ( Type.Number )
+		. insert ( AND(Method.Validate, Method.Insets) )
+		{
+			-------------------------------------------
+			AbsInset ( Method.Validate )
+			-------------------------------------------
+			. bottom ( Type.Number )
+			. left   ( Type.Number )
+			. right  ( Type.Number )
+			. top    ( Type.Number );
+		};
 
 		-----------------------------------------------
 		Resizing
@@ -52,34 +110,8 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			-------------------------------------------
 			Anchors
 			-------------------------------------------
-			. insert( Method.Forward )
-			{
-				---------------------------------------
-				Anchor
-				---------------------------------------
-				. point         ( AND(Type.Enum.FRAMEPOINT, Type.String) )
-				. relativeKey   ( Type.String  )
-				. relativeTo    ( OR(Type.String, Type.Widget) )
-				. relativePoint ( AND(Type.Enum.FRAMEPOINT, Type.String) )
-				. x             ( Type.Number  )
-				. y             ( Type.Number  )
-				. insert        ( AND(Method.Validate, Method.Point) )
-				{
-					-----------------------------------
-					Offset
-					-----------------------------------
-					. x      ( Type.Number )
-					. y      ( Type.Number )
-					. insert ( Method.Validate )
-					{
-						-------------------------------
-						AbsDimension ( Method.Validate )
-						-------------------------------
-						. x ( Type.Number )
-						. y ( Type.Number );
-					};
-				};
-			};
+			. implement ( Abstract { Anchors {} } );
+
 			-------------------------------------------
 			Size
 			-------------------------------------------
@@ -193,7 +225,11 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			object:SetFrameLevel(object:GetParent():GetFrameLevel())
 		end) )
 		{
-			Frames {}; -- TODO: test
+			-------------------------------------------
+			Frames
+			-------------------------------------------
+			. implement ( UI {} )
+			. insert    ( Method.Forward );
 			-------------------------------------------
 			Attributes
 			-------------------------------------------
@@ -218,7 +254,10 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 				};
 			};
 			-------------------------------------------
-			HitRectInsets (function(object, props) end);
+			HitRectInsets
+			-------------------------------------------
+			. implement ( Abstract { Insets {} } );
+
 			-------------------------------------------
 			Layers
 			-------------------------------------------

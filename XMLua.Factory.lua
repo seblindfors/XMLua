@@ -3,14 +3,17 @@ local Metadata = XML and XML:GetMetadata();
 
 if not XML or Metadata.Loaded then return end;
 
+-------------------------------------------------------
+-- Common helpers
+-------------------------------------------------------
 local function __modify(t, k, v)
 	local mt = getmetatable(t) or {};
 	rawset(mt, k, v)
 	return setmetatable(t, mt)
 end
 
-local function __get(t)
-	return getmetatable(t).__index;
+local function __get(t, k)
+	return getmetatable(t)[k or '__index'];
 end
 
 local function __proxy(src, dest)
@@ -28,6 +31,31 @@ local function isfunc(f)   return istype(f, 'function') end;
 local function isdef(o)	   return o ~= nil end;
 
 local function strip(msg) return (msg:gsub('^.+%.lua:%d+: ', '')) end;
+
+-------------------------------------------------------
+-- Closure helpers
+-------------------------------------------------------
+local function AND(...)
+	return GenerateClosure(function(calls, self, object, ...)
+		for _, call in ipairs(calls) do
+			object = call(self, object, ...)
+		end
+		return object;
+	end, {...})
+end
+
+local function OR(...)
+	return GenerateClosure(function(calls, self, object, ...)
+		local errors, isOK, result = {};
+		for _, call in ipairs(calls) do 
+			isOK, result = pcall(call, self, object, ...)
+			if isOK then return result end;
+			tinsert(errors, strip(result))
+		end
+		tinsert(errors, 1, 'Multiple tests failed:')
+		error(table.concat(errors, '\n'))
+	end, {...})
+end
 
 -------------------------------------------------------
 -- Schema generation
@@ -48,17 +76,21 @@ function SchemaGen:Acquire(name)
 end
 
 function SchemaGen:InitFromProps(props)
-	local extensions, insert = props() { extend, insert };
-	props.extend, props.insert = nil, nil;
-	__proxy(self, CreateFromMixins(props))
-	return extensions, insert;
+	local extensions, insert, implement = props() { extend, insert, implement };
+	props.extend, props.insert, props.implement = nil, nil, nil;
+	return extensions, insert, implement;
 end
 
-function SchemaGen:Inherit(super, schema, prevName)
+function SchemaGen:Extend(super, callables, schema)
 	local superName, superProps, superContent = Props.Get(super)
 
 	local parentObj = schema[superName];
 	local objectProps, parentProps = __get(self), __get(parentObj);
+	local parentCall = __get(parentObj, '__call');
+
+	if isfunc(parentCall) then
+		tinsert(callables, parentCall)
+	end
 	if isempty(superProps) then
 		MergeTable(objectProps, parentProps)
 	else
@@ -70,42 +102,58 @@ function SchemaGen:Inherit(super, schema, prevName)
 		MergeTable(self, parentObj)
 	else
 		for index, elem in ipairs(superContent) do
-			SchemaGen.Inherit(self, elem, parentObj, superName)
+			SchemaGen.Extend(self, elem, callables, parentObj)
 		end
 	end
 end
 
-function SchemaGen:SetCallable(func)
-	return __callable(self, func)
+function SchemaGen:Implement(super, callables, schema)
+	local superName, superProps, superContent = Props.Get(super)
+	local parentObj = schema[superName];
+
+	if isempty(superContent) then
+		tinsert(callables, __get(parentObj, '__call'))
+		return __proxy(self, parentObj)
+	end
+	return SchemaGen.Implement(self, superContent[1], callables, parentObj)
 end
 
 local SchemaResolver = {__call = function(self, parentObj)
 	local name, props, content = Props.Get(self)
 
 	local object = SchemaGen.Acquire(parentObj or Schema, name);
-	local extensions, call = SchemaGen.InitFromProps(object, props);
+	local extensions, call, implement = SchemaGen.InitFromProps(object, props);
 
-	if extensions then
-		for i, extension in ipairs(extensions) do
-			SchemaGen.Inherit(object, extension, Schema)
-		end
-	end
-
-	if istable(content) then
-		for index, elem in ipairs(content) do
-			local child, parentKey = elem(object)
-			if parentKey then
-				object[parentKey] = child;
+	local callables = {};
+	if implement then
+		SchemaGen.Implement(object, implement, callables, Schema)
+	else
+		__proxy(object, CreateFromMixins(props))
+		if extensions then
+			for i, extension in ipairs(extensions) do
+				SchemaGen.Extend(object, extension, callables, Schema)
 			end
 		end
-	elseif isfunc(content) then
-		call = content;
-	elseif isdef(content) then
-		object = content;
+
+		if istable(content) then
+			for index, elem in ipairs(content) do
+				local child, parentKey = elem(object)
+				if parentKey then
+					object[parentKey] = child;
+				end
+			end
+		elseif isfunc(content) then
+			call = content;
+		elseif isdef(content) then
+			object = content;
+		end
 	end
 
-	if call then
-		SchemaGen.SetCallable(object, call)
+	if next(callables) then
+		tinsert(callables, call)
+		__callable(object, AND(unpack(callables)))
+	elseif call then
+		__callable(object, call)
 	end
 
 	return object, name;
@@ -253,13 +301,53 @@ do	local function GetRelative(object, query)
 		local relative = GetRelative(object, relativeTo or relativeKey)
 		local offX, offY = GetOffsets(tag)
 
+		-- convert <.*?Anchor> to equivalent Set.*Point
+		local methodName = ('Set%sPoint'):format(Props.Get(tag):gsub('Anchor', ''));
+		local func = object[methodName];
+
+		assert(func, ('Method name %q does not exist.'):format(methodName))
+
 		if relativePoint then
-			object:SetPoint(point, relative, relativePoint, offX, offY)
+			func(object, point, relative, relativePoint, offX, offY)
 		elseif relative then
-			object:SetPoint(point, relative, offX, offY)
+			func(object, point, relative, offX, offY)
 		else
-			object:SetPoint(point, offX, offY)
+			func(object, point, offX, offY)
 		end
+		return object;
+	end
+end
+
+do local function GetInsets(name, props, content)
+		local left, right, top, bottom = props()
+			{ left, right, top, bottom }
+		if (left or right or top or bottom) then
+			return left or 0, right or 0, top or 0, bottom or 0;
+		end
+
+		local child = content and content[1];
+		if child then
+			return GetInsets(Props.Get(child))
+		end
+		return 0, 0, 0, 0;
+	end
+
+	function Method:Insets(
+		object      , -- @param target object to render on
+		props       , -- @param <Element properties {...} />
+		parentProps , -- @param <Parent properties{...} /> 
+		tag         , -- @param <Element />
+		parentTag   ) -- @param <Parent />)
+
+		local name, props, content = Props.Get(tag)
+		local left, right, top, bottom = GetInsets(name, props, content)
+
+		-- convert <.*?Insets> to equivalent Set.*Insets
+		local methodName = ('Set%s'):format(name);
+		local func = object[methodName];
+
+		assert(func, ('Method name %q does not exist.'):format(methodName))
+		func(object, left, right, top, bottom)
 		return object;
 	end
 end
@@ -282,12 +370,12 @@ local TypeError = __callable({
 
 local Type = {
 	Any         = nop;
-	Bool        = TypeError.Assert(TypeError.Value('bool'),   TypeError.Expect('boolean'));
-	Number      = TypeError.Assert(TypeError.Value('number'), TypeError.Expect('number'));
-	String      = TypeError.Assert(TypeError.Value('string'), TypeError.Expect('string'));
-	Table       = TypeError.Assert(TypeError.Value('table'),  TypeError.Expect('table'));
-	Widget      = TypeError.Assert(TypeError.Widget,          TypeError.Expect('widget'));
-	Frame       = TypeError.Assert(TypeError.Frame,           TypeError.Expect('frame'));
+	Bool        = TypeError.Assert(TypeError.Value('boolean'), TypeError.Expect('boolean'));
+	Number      = TypeError.Assert(TypeError.Value('number'),  TypeError.Expect('number'));
+	String      = TypeError.Assert(TypeError.Value('string'),  TypeError.Expect('string'));
+	Table       = TypeError.Assert(TypeError.Value('table'),   TypeError.Expect('table'));
+	Widget      = TypeError.Assert(TypeError.Widget,           TypeError.Expect('widget'));
+	Frame       = TypeError.Assert(TypeError.Frame,            TypeError.Expect('frame'));
 	Deprecated  = TypeError('Attribute %q is deprecated.');
 	Protected   = TypeError('Attribute %q is protected and cannot be used from insecure code.');
 	Unsupported = TypeError('Attribute %q is not supported.');
@@ -301,16 +389,21 @@ local Type = {
 		end), enumType)
 	end)
 };
-
+	
 -------------------------------------------------------
 -- Attribute evaluation
 -------------------------------------------------------
+local function EvalWrapFunction(func, _, object, ...)
+	func(object, ...)
+	return object;
+end
+
 local function EvalSetAndMap(self, object, value, key, name)
 	local method = rawget(object, name)
 	if not method then
 		method = __get(object)[name];
 		assert(method, ('Method name %q derived from %q does not exist.'):format(name, key))
-		self[key] = method;
+		self[key] = GenerateClosure(EvalWrapFunction, method);
 	end
 	method(object, value)
 	return object;
@@ -318,10 +411,7 @@ end
 
 local Eval = __proxy(__callable({
 	Call = function(func)
-		return function(_, object, value)
-			func(object, value)
-			return object;
-		end
+		return GenerateClosure(EvalWrapFunction, func)
 	end;
 	Map = function(methodName)
 		return function(self, object, value, key)
@@ -340,16 +430,6 @@ function Eval:Togglable(object, value, key)
 	return EvalSetAndMap(self, object, value, key, key:gsub('^%l', string.upper))
 end
 
-function Eval:ParentArray(object, key)
-	local parent = object:GetParent()
-	local array = parent[key];
-	if not array then
-		array = {}; parent[key] = array;
-	end
-	array[#array + 1] = object;
-	return object;
-end
-
 -------------------------------------------------------
 -- Export metadata
 -------------------------------------------------------
@@ -361,26 +441,8 @@ Metadata.Factory = {
 	Type      = Type;
 	TypeError = TypeError;
 	-- Helpers:
-	AND = function(...)
-		return GenerateClosure(function(calls, self, object, ...)
-			for _, call in ipairs(calls) do
-				object = call(self, object, ...)
-			end
-			return object;
-		end, {...})
-	end;
-	OR = function(...)
-		return GenerateClosure(function(calls, self, object, ...)
-			local errors, isOK, result = {};
-			for _, call in ipairs(calls) do 
-				isOK, result = pcall(call, self, object, ...)
-				if isOK then return result end;
-				tinsert(errors, strip(result))
-			end
-			tinsert(errors, 1, 'Multiple tests failed:')
-			error(table.concat(errors, '\n'))
-		end, {...})
-	end;
+	AND       = AND;
+	OR        = OR;
 };
 
 Metadata.Schema = Schema;
