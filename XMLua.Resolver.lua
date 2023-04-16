@@ -17,10 +17,12 @@ Props.Printer = function(value)
 end
 
 -------------------------------------------------------
--- Interface resolver
+-- Error handling
 -------------------------------------------------------
+local function strip(msg) return (msg:gsub('.+%.lua:%d+: ', '%1', 1)) end; -- TODO
+
 local function ThrowException(message, elem)
-	error(('%s\nin tag:\n%s\n'):format(message, tostring(elem)), 4)
+	error(('%s\nin tag:\n%s\n'):format(strip(message), tostring(elem)), 6)
 end
 
 local function Assert(isOK, message, elem)
@@ -29,7 +31,10 @@ local function Assert(isOK, message, elem)
 	end
 end
 
-local UIResolver = {__call = function(
+-------------------------------------------------------
+-- Interface resolver
+-------------------------------------------------------
+XML:SetResolver({__call = function(
 	self        , -- @param <Element />
 	targetObj   , -- @param object on which rendering should occur
 	parentTag   , -- @param enveloping tag
@@ -39,15 +44,15 @@ local UIResolver = {__call = function(
 	local name, props, content = Props.Get(self)
 
 	local render = (renderer or Schema)[name]; -- TODO: handle calling xml on existing objects
-	Assert(render, ('Element %s not recognized in %s.'):format(name, parentName or 'root'), self)
+	Assert(render, ('Element %s not recognized in %s.'):format(name, parentName or 'root'), self) -- TODO: parentName
 
 	local isOK, object = pcall(
 		render      , -- @param rendering function
 		-- schema   , -- @param implicit schema object
 		targetObj   , -- @param target object to render on
 		props       , -- @param <Element properties {...} />
-		parentProps , -- @param <Parent properties{...} /> 
 		self        , -- @param <Element />
+		parentProps , -- @param <Parent properties{...} /> 
 		parentTag   ) -- @param <Parent />
 
 	Assert(isOK, object, self)
@@ -60,10 +65,8 @@ local UIResolver = {__call = function(
 	end
 
 	return object;
-end};
+end})
 
--------------------------------------------------------
-XML:SetResolver(UIResolver)
 -------------------------------------------------------
 Metadata.Loaded  = true;
 Metadata.Factory = nil;

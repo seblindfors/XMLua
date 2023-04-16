@@ -35,17 +35,15 @@ local function strip(msg) return (msg:gsub('^.+%.lua:%d+: ', '')) end;
 -------------------------------------------------------
 -- Closure helpers
 -------------------------------------------------------
-local function AND(...)
-	return GenerateClosure(function(calls, self, object, ...)
+local AND, OR; do
+	local function __AND__(calls, self, object, ...)
 		for _, call in ipairs(calls) do
 			object = call(self, object, ...)
 		end
 		return object;
-	end, {...})
-end
+	end
 
-local function OR(...)
-	return GenerateClosure(function(calls, self, object, ...)
+	local function __OR__(calls, self, object, ...)
 		local errors, isOK, result = {};
 		for _, call in ipairs(calls) do 
 			isOK, result = pcall(call, self, object, ...)
@@ -53,8 +51,11 @@ local function OR(...)
 			tinsert(errors, strip(result))
 		end
 		tinsert(errors, 1, 'Multiple tests failed:')
-		error(table.concat(errors, '\n'))
-	end, {...})
+		error(table.concat(errors, '\n- ') .. '\n')
+	end
+
+	function AND (...) return GenerateClosure(__AND__, {...}) end;
+	function OR  (...) return GenerateClosure(__OR__,  {...}) end;
 end
 
 -------------------------------------------------------
@@ -64,12 +65,12 @@ local Schema, SchemaGen = {Abstract = {}, UI = {}}, {};
 local Props = Metadata.Element;
 RND = Schema
 
-Props.Get = function(self)
+function Props:Get()
 	local name    = rawget(self, Props.Name)
 	local props   = rawget(self, Props.Attributes)
 	local content = rawget(self, Props.Content)
 	return name, props, content;
-end;
+end
 
 function SchemaGen:Acquire(name)
 	return self[name] or {};
@@ -164,7 +165,7 @@ end};
 -------------------------------------------------------
 local Factory = {};
 
-function Factory:Initialize(object, props, tag)
+function Factory:Initialize(object, props)
 	for key, value in pairs(props) do
 		local exec = rawget(self, key)
 		if isfunc(exec) then
@@ -181,11 +182,11 @@ end
 function Factory:Frame(
 	parentObj   , -- @param target object to render on
 	props       , -- @param <Element properties {...} />
-	parentProps , -- @param <Parent properties{...} /> 
 	tag         , -- @param <Element />
+	parentProps , -- @param <Parent properties{...} /> 
 	parentTag   ) -- @param <Parent />)
 
-	local name, parent, inherits, id, parentKey = props() { name, parent, inherits, id };
+	local name, parent, inherits, id = props() { name, parent, inherits, id };
 	return Factory.Initialize(self, CreateFrame(rawget(tag, Props.Name),
 		name,
 		parent or parentObj,
@@ -194,19 +195,62 @@ function Factory:Frame(
 	), props, tag)
 end
 
+function Factory:Texture(
+	parentObj   , -- @param target object to render on
+	props       , -- @param <Element properties {...} />
+	tag         , -- @param <Element />
+	parentProps , -- @param <Parent properties{...} /> 
+	parentTag   ) -- @param <Parent />)
+
+	local name, parent, inherits, id = props()
+		{ name, parent, inherits, id };
+	local level, textureSubLevel = parentProps()
+		{ level, textureSubLevel };
+
+	local texture = parentObj:CreateTexture(name, level, inherits, textureSubLevel)
+	local atlas, useAtlasSize, file, hWrapMode, vWrapMode, filterMode = props()
+		{ atlas, useAtlasSize, file, hWrapMode, vWrapMode, filterMode };
+
+	if file then
+		texture:SetTexture(file, hWrapMode, vWrapMode, filterMode)
+	end
+
+	if atlas then
+		texture:SetAtlas(atlas, useAtlasSize, filterMode)
+	end
+
+	return Factory.Initialize(self, texture, props)
+end
+
+function Factory:AnimationGroup(
+	parentObj   , -- @param target object to render on
+	props       , -- @param <Element properties {...} />
+	tag         , -- @param <Element />
+	parentProps , -- @param <Parent properties{...} /> 
+	parentTag   ) -- @param <Parent />)
+
+	local name, inherits = props()
+		{ name, inherits };
+
+	local animGroup = parentObj:CreateAnimationGroup(name, inherits)
+	return Factory.Initialize(self, animGroup, props)
+end
 -------------------------------------------------------
 -- Methods
 -------------------------------------------------------
 local Method = {};
 
-function Method:Forward(object)
+function Method:Forward(
+	object      , -- @param target object to render on
+	props       , -- @param <Element properties {...} />
+	tag         , -- @param <Element />
+	parentProps , -- @param <Parent properties{...} /> 
+	parentTag   ) -- @param <Parent />
+
 	return object;
 end
 
-function Method:Validate(
-	object      , -- @param target object to render on
-	props       ) -- @param <Element properties {...} />
-
+function Method:Validate(object, props)
 	for key, value in pairs(props) do
 		exec = self[key];
 		assert(exec, ('Unknown attribute %q.'):format(key))
@@ -215,10 +259,7 @@ function Method:Validate(
 	return object;
 end
 
-function Method:Size(
-	object      , -- @param target object to render on
-	props       ) -- @param <Element properties {...} />
-
+function Method:Size(object, props)
 	local x, y = props() { x, y };
 	if (x and y) then
 		object:SetSize(x, y)
@@ -230,10 +271,7 @@ function Method:Size(
 	return object;
 end
 
-function Method:Attribute(
-	object      , -- @param target object to render on
-	props       ) -- @param <Element properties {...} />
-
+function Method:Attribute(object, props)
 	local name, value = props() { name, value };
 	if (props.type) then
 		assert(type(value) == props.type, 'Attribute value has invalid type.')
@@ -242,10 +280,7 @@ function Method:Attribute(
 	return object;
 end
 
-function Method:KeyValue(
-	object      , -- @param target object to render on
-	props       ) -- @param <Element properties {...} />
-
+function Method:KeyValue(object, props)
 	local key, value = props() { key, value };
 	if (props.type) then
 		assert(type(value) == props.type, 'Value in key-value pair has invalid type.')
@@ -289,13 +324,7 @@ do	local function GetRelative(object, query)
 		return 0, 0;
 	end
 
-	function Method:Point(
-		object      , -- @param target object to render on
-		props       , -- @param <Element properties {...} />
-		parentProps , -- @param <Parent properties{...} /> 
-		tag         , -- @param <Element />
-		parentTag   ) -- @param <Parent />)
-
+	function Method:Point(object, props, tag)
 		local point, relativeKey, relativeTo, relativePoint = props()
 			{ point, relativeKey, relativeTo, relativePoint };
 		local relative = GetRelative(object, relativeTo or relativeKey)
@@ -332,13 +361,7 @@ do local function GetInsets(name, props, content)
 		return 0, 0, 0, 0;
 	end
 
-	function Method:Insets(
-		object      , -- @param target object to render on
-		props       , -- @param <Element properties {...} />
-		parentProps , -- @param <Parent properties{...} /> 
-		tag         , -- @param <Element />
-		parentTag   ) -- @param <Parent />)
-
+	function Method:Insets(object, props, tag)
 		local name, props, content = Props.Get(tag)
 		local left, right, top, bottom = GetInsets(name, props, content)
 
@@ -350,6 +373,67 @@ do local function GetInsets(name, props, content)
 		func(object, left, right, top, bottom)
 		return object;
 	end
+end
+
+function Method:TexCoord(object, props)
+	local left, right, top, bottom = props()
+		{ left, right, top, bottom };
+
+	if left or right or top or bottom then
+		object:SetTexCoord(left or 0, right or 1, top or 0, bottom or 1)
+		return object;
+	end
+
+	local ULx, ULy, LLx, LLy, URx, URy, LRx, LRy = props()
+		{ ULx, ULy, LLx, LLy, URx, URy, LRx, LRy };
+	if ULx or ULy or LLx or LLy or URx or URy or LRx or LRy then
+		object:SetTexCoord(ULx, ULy, LLx, LLy, URx, URy, LRx, LRy)
+	end
+
+	return object;
+end
+
+function Method:Gradient(object, props, tag)
+	local orientation = props() { orientation };
+	local minColor, maxColor;
+
+	local _, _, content = Props.Get(tag)
+	assert(content, 'Gradient element must have MinColor and MaxColor.')
+	for _, child in ipairs(content) do
+		local name, props = Props.Get(child)
+		local r, g, b, a, color = props()
+			{ r, g, b, a, color };
+		if istype(color, 'string') then
+			color = _G[color];
+		end
+
+		if ( name == 'MinColor' ) then
+			minColor = color or CreateColor(r, g, b, a)
+		elseif (name == 'MaxColor') then
+			maxColor = color or CreateColor(r, g, b, a)
+		end
+	end
+	assert(minColor, 'Gradient element must have MinColor.')
+	assert(maxColor, 'Gradient element must have MaxColor.')
+	if object.SetGradientAlpha then
+		local minR, minG, minB, minA = minColor:GetRGBA()
+		local maxR, maxG, maxB, maxA = maxColor:GetRGBA()
+		object:SetGradientAlpha(orientation, minR, minG, minB, minA or 1, maxR, maxG, maxB, maxA or 1)
+	elseif object.SetGradient then
+		object:SetGradient(orientation, minColor, maxColor)
+	end
+	return object;
+end
+
+function Method:Color(object, props)
+	local r, g, b, a, color = props()
+		{ r, g, b, a, color };
+	if istype(color, 'string') then
+		color = _G[color];
+	end
+	color = color or CreateColor(r, g, b, a)
+	object:SetColorTexture(color:GetRGBA())
+	return object;
 end
 
 -------------------------------------------------------

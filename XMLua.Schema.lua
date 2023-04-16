@@ -4,45 +4,78 @@ local Metadata = XML and XML:GetMetadata();
 if not XML or Metadata.Loaded then return end;
 local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory) {
 	Abstract {
-		-----------------------------------------------
-		Enum {
-		-----------------------------------------------
-			FRAMEPOINT {
-				TOPLEFT     (1);
-				TOPRIGHT    (2);
-				BOTTOMLEFT  (3);
-				BOTTOMRIGHT (4);
-				TOP         (5);
-				BOTTOM      (6);
-				LEFT        (7);
-				RIGHT       (8);
-				CENTER      (9);
+		Enum
+		{
+			ALPHAMODE {
+				DISABLE              (1);
+				BLEND                (2);
+				ALPHAKEY             (3);
+				ADD                  (4);
+				MOD                  (5);
 			};
-			FRAMESTRATA {
-				PARENT      (1);
-				BACKGROUND  (2);
-				LOW         (3);
-				MEDIUM      (4);
-				HIGH        (5);
-				DIALOG      (6);
-				FULLSCREEN  (7);
-				FULLSCREEN_DIALOG (8);
-				TOOLTIP     (9);
+			ANIMLOOPTYPE {
+				NONE                 (1);
+				REPEAT               (2);
+				BOUNCE               (3);
 			};
 			DRAWLAYER {
-				BACKGROUND  (1);
-				BORDER      (2);
-				ARTWORK     (3);
-				OVERLAY     (4);
-				HIGHLIGHT   (5);
+				BACKGROUND           (1);
+				BORDER               (2);
+				ARTWORK              (3);
+				OVERLAY              (4);
+				HIGHLIGHT            (5);
+			};
+			FILTERMODE {
+				LINEAR               (1);
+				TRILINEAR            (2);
+				NEAREST              (3);
+			};
+			FRAMEPOINT {
+				TOPLEFT              (1);
+				TOPRIGHT             (2);
+				BOTTOMLEFT           (3);
+				BOTTOMRIGHT (4);
+				TOP                  (5);
+				BOTTOM               (6);
+				LEFT                 (7);
+				RIGHT                (8);
+				CENTER               (9);
+			};
+			FRAMESTRATA {
+				PARENT               (1);
+				BACKGROUND           (2);
+				LOW                  (3);
+				MEDIUM               (4);
+				HIGH                 (5);
+				DIALOG               (6);
+				FULLSCREEN           (7);
+				FULLSCREEN_DIALOG    (8);
+				TOOLTIP              (9);
+			};
+			ORIENTATION {
+				HORIZONTAL           (1);
+				VERTICAL             (2);
+			};
+			WRAPMODE {
+				CLAMP                (1);
+				REPEAT               (2);
+				CLAMPTOBLACK         (3);
+				CLAMPTOBLACKADDITIVE (4);
+				CLAMPTOWHITE         (5);
+				MIRROR               (6);
 			};
 		};
 
-		-----------------------------------------------
+
 		Object
-		-----------------------------------------------
-		. parentKey   ( AND(OR(Type.Number, Type.String), Eval.Setter) )
-		. parentArray ( Eval(function(object, key)
+		. inherits           ( Type.String    )
+		. mixin              ( Type.Table     )
+		. name               ( Type.String    )
+		. secureMixin        ( Type.Protected )
+		. secureReferenceKey ( Type.Protected )
+		. virtual            ( TypeError('Cannot create virtual objects in Lua.') )
+		. parentKey          ( AND(OR(Type.Number, Type.String), Eval.Setter) )
+		. parentArray        ( Eval(function(object, key)
 			local parent = object:GetParent()
 			local parentArray = parent[key];
 			if not parentArray then
@@ -52,127 +85,61 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			parentArray[#parentArray + 1] = object;
 		end) );
 
-		-----------------------------------------------
+
 		Anchors
-		-----------------------------------------------
 		. insert( Method.Forward )
 		{
-			-------------------------------------------
 			Anchor
-			-------------------------------------------
+			. insert        ( AND(Method.Validate, Method.Point) )
 			. point         ( Type.Enum.FRAMEPOINT )
 			. relativeKey   ( Type.String  )
 			. relativeTo    ( OR(Type.String, Type.Widget) )
 			. relativePoint ( Type.Enum.FRAMEPOINT )
 			. x             ( Type.Number  )
 			. y             ( Type.Number  )
-			. insert        ( AND(Method.Validate, Method.Point) )
 			{
-				---------------------------------------
 				Offset
-				---------------------------------------
 				. x      ( Type.Number )
 				. y      ( Type.Number )
 				. insert ( Method.Validate )
 				{
-					-----------------------------------
 					AbsDimension ( Method.Validate )
-					-----------------------------------
 					. x ( Type.Number )
 					. y ( Type.Number );
 				};
 			};
 		};
 
-		-----------------------------------------------
+
 		Insets
-		-----------------------------------------------
+		. insert ( OR(Method.Insets, Method.Validate) )
 		. bottom ( Type.Number )
 		. left   ( Type.Number )
 		. right  ( Type.Number )
 		. top    ( Type.Number )
-		. insert ( AND(Method.Validate, Method.Insets) )
 		{
-			-------------------------------------------
 			AbsInset ( Method.Validate )
-			-------------------------------------------
-			. bottom ( Type.Number )
-			. left   ( Type.Number )
-			. right  ( Type.Number )
-			. top    ( Type.Number );
+			. bottom ( Type.Number     )
+			. left   ( Type.Number     )
+			. right  ( Type.Number     )
+			. top    ( Type.Number     );
 		};
 
-		-----------------------------------------------
-		Resizing
-		-----------------------------------------------
-		. scale ( AND(Type.Number, Eval.Setter) )
+
+		Color   ( Method.Validate )
+		. r     ( Type.Number     )
+		. g     ( Type.Number     )
+		. b     ( Type.Number     )
+		. a     ( Type.Number     )
+		. color ( OR(Type.Table, Type.String) );
+
+
+		TableObject
 		{
-			-------------------------------------------
-			Anchors
-			-------------------------------------------
-			. implement ( Abstract { Anchors {} } );
-
-			-------------------------------------------
-			Size
-			-------------------------------------------
-			. x      ( Type.Number )
-			. y      ( Type.Number )
-			. insert ( Method.Size )
-			{
-				---------------------------------------
-				AbsDimension ( Method.Size )
-				---------------------------------------
-				. x ( Type.Number )
-				. y ( Type.Number );
-			};
-		};
-
-		-----------------------------------------------
-		ScriptRegion
-		-----------------------------------------------
-		{
-			-------------------------------------------
-			Scripts
-			-------------------------------------------
-			. resolver(function() end)
-			{
-				OnLoad ( function(object, props, ...) end );
-			};
-		};
-
-		-----------------------------------------------
-		LayoutFrame
-		-----------------------------------------------
-		. extend {
-			Abstract {
-				Object       {};
-				Resizing     {};
-				ScriptRegion {};
-			};
-		}
-		. alpha              ( AND(Type.Number, Eval.Setter) )
-		. enableMouse        ( AND(Type.Bool, Eval.Togglable) )
-		. enableMouseClicks  ( AND(Type.Bool, Eval.SetMouseClickEnabled) )
-		. enableMouseMotion  ( AND(Type.Bool, Eval.SetMouseMotionEnabled) )
-		. hidden             ( AND(Type.Bool, Eval(function(object, hide) object:SetShown(not hide) end)) )
-		. inherits           ( Type.String      )
-		. mixin              ( Type.Table       )
-		. name               ( Type.String      )
-		. parent             ( AND(OR(Type.String, Type.Frame), Eval.Setter) )
-		. passThroughButtons ( Eval.Setter      )
-		. secureMixin        ( Type.Protected   )
-		. secureReferenceKey ( Type.Protected   )
-		. setAllPoints       ( AND(OR(Type.Bool, Type.String, Type.Widget), Eval.Togglable) )
-		. virtual            ( TypeError('Cannot create virtual frames in Lua.') )
-		{	
-			-------------------------------------------
 			KeyValues
-			-------------------------------------------
 			. insert ( Method.Forward )
 			{
-				---------------------------------------
 				KeyValue ( AND(Method.Validate, Method.KeyValue) )
-				---------------------------------------
 				. key        ( OR(Type.String, Type.Number) )
 				. keyType    ( Type.String )
 				. type       ( Type.String )
@@ -180,19 +147,121 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			};
 		};
 
-		-----------------------------------------------
-		TextureBase
-		-----------------------------------------------
-		. extend   { Abstract { LayoutFrame {} } }
+
+		Resizing
+		. scale ( AND(Type.Number, Eval.Setter) )
 		{
-			Color (function(object, props) end);
+			Anchors
+			. implement ( Abstract { Anchors {} } );
+			Size
+			. insert ( Method.Size )
+			. x      ( Type.Number )
+			. y      ( Type.Number )
+			{
+				AbsDimension ( Method.Size )
+				. x ( Type.Number )
+				. y ( Type.Number );
+			};
+		};
+
+
+		ScriptRegion
+		{
+			Scripts
+			. resolver(function() end)
+			{
+				OnLoad ( function(object, props, ...) end );
+			};
+		};
+
+
+		LayoutFrame
+		. extend {
+			Abstract {
+				Object       {};
+				Resizing     {};
+				ScriptRegion {};
+				TableObject  {};
+			};
+		}
+		. alpha              ( AND(Type.Number, Eval.Setter) )
+		. enableMouse        ( AND(Type.Bool, Eval.Togglable) )
+		. enableMouseClicks  ( AND(Type.Bool, Eval.SetMouseClickEnabled) )
+		. enableMouseMotion  ( AND(Type.Bool, Eval.SetMouseMotionEnabled) )
+		. hidden             ( AND(Type.Bool, Eval(function(object, hide) object:SetShown(not hide) end)) )
+		. ignoreParentAlpha  ( Eval.Setter      )
+		. ignoreParentScale  ( Eval.Setter      )
+		. parent             ( AND(OR(Type.String, Type.Frame), Eval.Setter) )
+		. passThroughButtons ( Eval.Setter      )
+		. setAllPoints       ( AND(OR(Type.Bool, Type.String, Type.Widget), Eval.Togglable) );
+
+
+		TextureBase
+		. extend            { Abstract { LayoutFrame {} } }
+		. insert            ( Factory.Texture                )
+		. alphaMode         ( AND(Type.Enum.ALPHAMODE, Eval.SetBlendMode) )
+		. atlas             ( Type.String                    )
+		. desaturated       ( Eval.SetDesaturation           )
+		. file              ( OR(Type.String, Type.Number)   )
+		. filterMode        ( Type.Enum.FILTERMODE           )
+		. horizTile         ( AND(Type.Bool, Eval.Setter)    )
+		. hWrapMode         ( Type.Enum.WRAPMODE             )
+		. mask              ( Eval.Setter                    )
+		. noanimalpha       ( Type.Unsupported               )
+		. nolazyload        ( Type.Unsupported               )
+		. nonBlocking       ( Eval.SetBlockingLoadsRequested )
+		. nounload          ( Type.Unsupported               )
+		. rotation          ( AND(Type.Number, Eval.Setter)  )
+		. snapToPixelGrid   ( AND(Type.Bool, Eval.Setter)    )
+		. texelSnappingBias ( AND(Type.Number, Eval.Setter)  )
+		. useAtlasSize      ( Type.Bool                      )
+		. vertTile          ( AND(Type.Bool, Eval.Setter)    )
+		. vWrapMode         ( Type.Enum.WRAPMODE             )
+		{
+			TexCoords
+			. insert ( AND(Method.Validate, Method.TexCoord) )
+			. bottom ( Type.Number )
+			. left   ( Type.Number )
+			. right  ( Type.Number )
+			. top    ( Type.Number )
+			{
+				Rect ( AND(Method.Validate, Method.TexCoord) )
+				. ULx ( Type.Number )
+				. ULy ( Type.Number )
+				. LLx ( Type.Number )
+				. LLy ( Type.Number )
+				. URx ( Type.Number )
+				. URy ( Type.Number )
+				. LRx ( Type.Number )
+				. LRy ( Type.Number );
+			};
+
+			Gradient
+			. insert      ( OR(Method.Gradient, Method.Validate) )
+			. orientation ( Type.Enum.ORIENTATION )
+			{
+				MinColor
+				. implement ( Abstract { Color {} } );
+				MaxColor
+				. implement ( Abstract { Color {} } );
+			};
+
+			Color ( Method.Color )
+			. extend ( Abstract { Color {} } );
+		};
+
+		Animation
+		. extend {
+			Abstract {
+				Object       {};
+				TableObject  {};
+				ScriptRegion {};
+			}
 		};
 	};
 
 	UI {
-		-----------------------------------------------
 		Frame
-		-----------------------------------------------
 		. extend                 { Abstract { LayoutFrame {} } }
 		. insert                 ( Factory.Frame   )
 		. clampedToScreen        ( Eval.Setter     )
@@ -208,8 +277,6 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 		. frameStrata            ( AND(Type.Enum.FRAMESTRATA, Eval.Setter) )
 		. hyperlinksEnabled      ( Eval.Setter     )
 		. id                     ( Eval.Setter     )
-		. ignoreParentAlpha      ( Eval.Setter     )
-		. ignoreParentScale      ( Eval.Setter     )
 		. intrinsic              ( TypeError('Cannot create intrinsic frames in Lua.') )
 		. jumpNavigateEnabled    ( Type.Deprecated )
 		. jumpNavigateStart      ( Type.Deprecated )
@@ -225,50 +292,55 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			object:SetFrameLevel(object:GetParent():GetFrameLevel())
 		end) )
 		{
-			-------------------------------------------
 			Frames
-			-------------------------------------------
-			. implement ( UI {} )
-			. insert    ( Method.Forward );
-			-------------------------------------------
+			. implement   ( UI {} )
+			. insert      ( Method.Forward );
+
 			Attributes
-			-------------------------------------------
-			. insert ( Method.Forward )
+			. insert      ( Method.Forward )
 			{
-				---------------------------------------
-				Attribute ( AND(Method.Validate, Method.Attribute) )
-				---------------------------------------
-				. name   ( OR(Type.String, Type.Number) )
-				. type   ( Type.String )
-				. value  ( Type.Any    );
+				Attribute ( OR(Method.Attribute, Method.Validate) )
+				. name    ( OR(Type.String, Type.Number) )
+				. type    ( Type.String )
+				. value   ( Type.Any    );
 			};
-			-------------------------------------------
+
 			Animations
-			-------------------------------------------
+			. insert      ( Method.Forward )
 			{
 				AnimationGroup
-				. insert(function(object, props, ...)
-
-				end) {
-					--Animations here
+				. extend {
+					Abstract {
+						Object       {};
+						ScriptRegion {};
+					};
+				}
+				. insert          ( Factory.AnimationGroup )
+				. looping         ( AND(Type.Enum.ANIMLOOPTYPE, Eval.Setter) )
+				. setToFinalAlpha ( AND(Type.Bool, Eval.Togglable) )
+				{--Animations here
 				};
 			};
-			-------------------------------------------
+
 			HitRectInsets
-			-------------------------------------------
 			. implement ( Abstract { Insets {} } );
 
-			-------------------------------------------
 			Layers
-			-------------------------------------------
+			. insert ( Method.Forward )
 			{
-				Layer .insert(function(object, props, ...) end) {
-					FontString .insert(function(object, props, ...) end) {
+				Layer
+				.insert          ( Method.Forward )
+				.level           ( Type.Enum.DRAWLAYER )
+				.textureSubLevel ( Type.Number )
+				{
+					Texture
+					. implement ( Abstract { TextureBase {} } );
+					--[[FontString .insert(function(object, props, ...) end) {
 						Color (function(object, props) end);
 						Shadow .insert(function(object, props) end) {
 
 						};
-					};
+					};]]
 				};
 			};
 		};
