@@ -23,37 +23,18 @@ end
 local rawset, rawget = rawset, rawget;
 local setmetatable, getmetatable = setmetatable, getmetatable;
 local setfenv, getfenv = setfenv, getfenv;
-local table, tostring = table, tostring;
+local table, select, tostring = table, select, tostring;
 
 -------------------------------------------------------
 -- Tag handling
 -------------------------------------------------------
 local TAG = {
 	ATTRIBUTE  = '%s %s=%q';
-	BALANCED   = '%b<>';
 	BEGIN      = '<%s';
-	CLOSING    = '^</';
-	ENCLOSED   = '/>$';
 	END_EMPTY  = '%s/>';
-	END_PROPS  = '%s>%s</%s>';
-	INDENT_TAG = '%s%s%s%s%s';
-	INDENT_TXT = '%s%s%s';
+	END_PROPS  = '%s>%s%s%s</%s>';
 	NONE       = '';
-	OPENING    = '^<[^/]';
-	PARSED     = '%s%s%s';
-	WS_AFTER   = '%s+$';
-	WS_BEFORE  = '^%s+';
 };
-
-local function gettext(str, start, stop)
-	return str:sub(start, stop)
-		:gsub(TAG.BALANCED,  TAG.NONE)
-		:gsub(TAG.WS_BEFORE, TAG.NONE)
-		:gsub(TAG.WS_AFTER,  TAG.NONE)
-end
-
-local function findtag(str, start)      return str:find(TAG.BALANCED, start) end;
-local function gettag(str, start, stop) return str:sub(start, stop), stop + 1 end;
 
 local function isstring(obj) return type(obj) == 'string' and obj:len() > 0 end;
 local function istable(obj)  return type(obj) == 'table' end;
@@ -65,22 +46,9 @@ local INDENT_LEVEL   = 4;
 local INDENT_TOKEN   = ' ';
 local INDENT_NEWLINE = '\n';
 
-local function indent(text, tag, innerText, depth)
-	local inner = isstring(innerText) and TAG.INDENT_TXT:format(
-		INDENT_NEWLINE,
-		INDENT_TOKEN:rep((depth + 1) * INDENT_LEVEL),
-		innerText:gsub(INDENT_NEWLINE,
-			INDENT_NEWLINE .. INDENT_TOKEN:rep((depth) * INDENT_LEVEL)
-		)
-	) or TAG.NONE;
-
-	return TAG.INDENT_TAG:format(
-		text,
-		tag,
-		inner,
-		INDENT_NEWLINE,
-		INDENT_TOKEN:rep(depth * INDENT_LEVEL)
-	);
+local function indent(text)
+	local inset = INDENT_TOKEN:rep(INDENT_LEVEL);
+	return (text):gsub('^', inset):gsub(INDENT_NEWLINE, INDENT_NEWLINE .. inset)
 end
 
 -------------------------------------------------------
@@ -89,9 +57,11 @@ end
 local Element, Props = {}, {
 	Name             = '__name';
 	Attributes       = '__attrs';
+	Namespace        = '__attrs';
 	Content          = '__content';
 	CurrentAttribute = '__curr';
-	Printer          = tostring;
+	Print            = tostring;
+	PrintNamespace   = tostring;
 };
 
 function Element:__index(key)
@@ -100,11 +70,17 @@ function Element:__index(key)
 end
 
 function Element:__call(...)
-	local attrs     = rawget(self, Props.Attributes);
 	local attribute = rawget(self, Props.CurrentAttribute);
 
 	if attribute then
-		attrs[attribute] = ...;
+		local arg1 = ...;
+		if (arg1 == self) then
+			local namespace = rawget(self, Props.Namespace)
+			namespace[#namespace + 1] = {attribute, select(2, ...)};
+		else
+			local attrs = rawget(self, Props.Attributes);
+			attrs[attribute] = arg1;
+		end
 		rawset(self, Props.CurrentAttribute, nil);
 	else
 		rawset(self, Props.Content, ...);
@@ -125,49 +101,27 @@ function Element:__tostring()
 		local children = {};
 
 		for index, child in ipairs(content) do
-			children[index] = Props.Printer(child)
+			children[index] = Props.Print(child)
 		end
 
-		content = table.concat(children, TAG.NONE)
+		content = indent(table.concat(children, INDENT_NEWLINE))
 	end
 
 	local name = rawget(self, Props.Name)
 	local tag = TAG.BEGIN:format(name);
 
-	for attrname, attrvalue in pairs(rawget(self, Props.Attributes)) do
-		tag = TAG.ATTRIBUTE:format(tag, attrname, Props.Printer(attrvalue));
+	local attributes = rawget(self, Props.Attributes);
+	for attrname, attrvalue in pairs(attributes) do
+		tag = TAG.ATTRIBUTE:format(tag, attrname, Props.Print(attrvalue));
+	end
+
+	local namespace = rawget(self, Props.Namespace)
+	if (istable(namespace)	 and namespace ~= attributes) then
+		tag = tag .. Props.PrintNamespace(namespace)
 	end
 
 	if isstring(content) then
-		local parsed, depth = TAG.NONE, 1;
-		local prev, isPrevClosingTag = TAG.NONE;
-		local i, j, k, this, innerText;
-
-		while true do
-			i, j = findtag(content, j)
-			if not i then break end;
-			
-			innerText = k and gettext(content, k, j)
-			this, k = gettag(content, i, j)
-
-			local isClosingTag   = this:match(TAG.CLOSING)
-			local isPrevEnclosed = prev:match(TAG.ENCLOSED)
-			local isPrevOpening  = prev:match(TAG.OPENING)
-
-			if not isPrevClosingTag and not isPrevEnclosed and isPrevOpening then
-				depth = depth + 1;
-			end
-			if isClosingTag then
-				depth = depth - 1;
-			end
-
-			parsed = indent(parsed, prev, innerText, depth)
-			prev, isPrevClosingTag = this, isClosingTag;
-		end
-
-		parsed = prev:len() == 0 and content or parsed .. prev .. INDENT_NEWLINE;
-
-		return TAG.END_PROPS:format(tag, parsed, name)
+		return TAG.END_PROPS:format(tag, INDENT_NEWLINE, content, INDENT_NEWLINE, name)
 	end
 	return TAG.END_EMPTY:format(tag)
 end
@@ -255,6 +209,7 @@ end
 local function create(name)
 	return setmetatable({
 		[Props.Name]       = name;
+		[Props.Namespace]  = {};
 		[Props.Attributes] = setmetatable({}, Attributes);
 	}, Element)
 end
