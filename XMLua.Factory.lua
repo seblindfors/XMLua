@@ -6,23 +6,10 @@ if not XML or Metadata.Loaded then return end;
 -------------------------------------------------------
 -- Common helpers
 -------------------------------------------------------
-local function __modify(t, k, v)
-	local mt = getmetatable(t) or {};
-	rawset(mt, k, v)
-	return setmetatable(t, mt)
-end
-
-local function __get(t, k)
-	return getmetatable(t)[k or '__index'];
-end
-
-local function __proxy(src, dest)
-	return __modify(src, '__index', dest)
-end
-
-local function __callable(src, func)
-	return __modify(src, '__call', func)
-end
+local function __get(t, k)       return getmetatable(t)[k or '__index'] end;
+local function __modify(t, k, v) return setmetatable(t, rawset(getmetatable(t) or {}, k, v)) end;
+local function __index(t, p)     return __modify(t, '__index', p) end;
+local function __call(t, f)      return __modify(t, '__call', f) end;
 
 local function istype(o,t) return type(o) == t end;
 local function istable(t)  return istype(t, 'table') end;
@@ -58,12 +45,14 @@ local AND, OR; do
 	function OR  (...) return GenerateClosure(__OR__,  {...}) end;
 end
 
+local function InternalWrapFunction(func, _, object, ...)
+	func(object, ...)
+	return object;
+end
 -------------------------------------------------------
--- Schema generation
+-- Element prop handler injection
 -------------------------------------------------------
-local Schema, SchemaGen = {Abstract = {}, UI = {}}, {};
 local Props = Metadata.Element;
-RND = Schema
 
 function Props:Get()
 	local name    = rawget(self, Props.Name)
@@ -71,6 +60,14 @@ function Props:Get()
 	local content = rawget(self, Props.Content)
 	return name, props, content;
 end
+
+Props.Namespace = '__methods';
+
+-------------------------------------------------------
+-- Schema generation
+-------------------------------------------------------
+local Schema, SchemaGen = {Abstract = {}, UI = {}}, {};
+RND = Schema -- TODO remove debug
 
 function SchemaGen:Acquire(name)
 	return self[name] or {};
@@ -114,7 +111,7 @@ function SchemaGen:Implement(super, callables, schema)
 
 	if isempty(superContent) then
 		tinsert(callables, __get(parentObj, '__call'))
-		return __proxy(self, parentObj)
+		return __index(self, parentObj)
 	end
 	return SchemaGen.Implement(self, superContent[1], callables, parentObj)
 end
@@ -129,7 +126,7 @@ local SchemaResolver = {__call = function(self, parentObj)
 	if implement then
 		SchemaGen.Implement(object, implement, callables, Schema)
 	else
-		__proxy(object, CreateFromMixins(props))
+		__index(object, CreateFromMixins(props))
 		if extensions then
 			for i, extension in ipairs(extensions) do
 				SchemaGen.Extend(object, extension, callables, Schema)
@@ -152,9 +149,9 @@ local SchemaResolver = {__call = function(self, parentObj)
 
 	if next(callables) then
 		tinsert(callables, call)
-		__callable(object, AND(unpack(callables)))
+		__call(object, AND(unpack(callables)))
 	elseif call then
-		__callable(object, call)
+		__call(object, call)
 	end
 
 	return object, name;
@@ -165,7 +162,7 @@ end};
 -------------------------------------------------------
 local Factory = {};
 
-function Factory:Initialize(object, props)
+function Factory:Initialize(object, props, namespace)
 	for key, value in pairs(props) do
 		local exec = rawget(self, key)
 		if isfunc(exec) then
@@ -176,15 +173,20 @@ function Factory:Initialize(object, props)
 			exec(self, object, value, key)
 		end
 	end
+	if istable(namespace) then
+		for _, data in ipairs(namespace) do
+			local method = data[1];
+			assert(isfunc(object[method]), ('Unknown method %q.'):format(method))
+			object[method](object, unpack(data, 2))
+		end
+	end
 	return object;
 end
 
 function Factory:Frame(
 	parentObj   , -- @param target object to render on
 	props       , -- @param <Element properties {...} />
-	tag         , -- @param <Element />
-	parentProps , -- @param <Parent properties{...} /> 
-	parentTag   ) -- @param <Parent />)
+	tag         ) -- @param <Element />
 
 	local name, parent, inherits, id = props() { name, parent, inherits, id };
 	return Factory.Initialize(self, CreateFrame(rawget(tag, Props.Name),
@@ -192,15 +194,14 @@ function Factory:Frame(
 		parent or parentObj,
 		inherits,
 		id
-	), props, tag)
+	), props, rawget(tag, Props.Namespace))
 end
 
 function Factory:Texture(
 	parentObj   , -- @param target object to render on
 	props       , -- @param <Element properties {...} />
 	tag         , -- @param <Element />
-	parentProps , -- @param <Parent properties{...} /> 
-	parentTag   ) -- @param <Parent />)
+	parentProps ) -- @param <Parent properties{...} />
 
 	local name, parent, inherits, id = props()
 		{ name, parent, inherits, id };
@@ -219,26 +220,24 @@ function Factory:Texture(
 		texture:SetAtlas(atlas, useAtlasSize, filterMode)
 	end
 
-	return Factory.Initialize(self, texture, props)
+	return Factory.Initialize(self, texture, props, rawget(tag, Props.Namespace))
 end
 
 function Factory:AnimationGroup(
 	parentObj   , -- @param target object to render on
 	props       , -- @param <Element properties {...} />
-	tag         , -- @param <Element />
-	parentProps , -- @param <Parent properties{...} /> 
-	parentTag   ) -- @param <Parent />)
+	tag         ) -- @param <Element />
 
 	local name, inherits = props()
 		{ name, inherits };
 
 	local animGroup = parentObj:CreateAnimationGroup(name, inherits)
-	return Factory.Initialize(self, animGroup, props)
+	return Factory.Initialize(self, animGroup, props, rawget(tag, Props.Namespace))
 end
 -------------------------------------------------------
 -- Methods
 -------------------------------------------------------
-local Method = {};
+local Method = __call({}, function(_, func) return GenerateClosure(InternalWrapFunction, func) end);
 
 function Method:Forward(
 	object      , -- @param target object to render on
@@ -246,8 +245,17 @@ function Method:Forward(
 	tag         , -- @param <Element />
 	parentProps , -- @param <Parent properties{...} /> 
 	parentTag   ) -- @param <Parent />
-
 	return object;
+end
+
+function Method:Parent(
+	object      , -- @param target object to render on
+	props       , -- @param <Element properties {...} />
+	tag         , -- @param <Element />
+	parentProps , -- @param <Parent properties{...} /> 
+	parentTag   , -- @param <Parent />
+	parent      ) -- @param parent renderer
+	return parent(object, props, parentTag, parentProps)
 end
 
 function Method:Validate(object, props)
@@ -425,21 +433,27 @@ function Method:Gradient(object, props, tag)
 	return object;
 end
 
-function Method:Color(object, props)
+function Method:Color(object, props, tag)
 	local r, g, b, a, color = props()
 		{ r, g, b, a, color };
 	if istype(color, 'string') then
 		color = _G[color];
 	end
-	color = color or CreateColor(r, g, b, a)
-	object:SetColorTexture(color:GetRGBA())
+	if istable(color) and color.GetRGBA then
+		r, g, b, a = color:GetRGBA()
+	end
+	if object:IsObjectType('Texture') then
+		object:SetColorTexture(r, g, b, a or 1)
+	elseif object:IsObjectType('FontString') then
+		object:SetTextColor(r, g, b, a or 1)
+	end
 	return object;
 end
 
 -------------------------------------------------------
 -- Type handling
 -------------------------------------------------------
-local TypeError = __callable({
+local TypeError = __call({
 	Assert = function(ass, msg) return (function(...) if not ass(...) then error(msg(...)) end; return (select(2, ...)); end) end;
 	-- Asserts:
 	Value  = function(expected) return (function(_, _, v, _) return istype(v, expected) end) end;
@@ -463,7 +477,7 @@ local Type = {
 	Deprecated  = TypeError('Attribute %q is deprecated.');
 	Protected   = TypeError('Attribute %q is protected and cannot be used from insecure code.');
 	Unsupported = TypeError('Attribute %q is not supported.');
-	Enum        = __proxy({}, function(self, enumType)
+	Enum        = __index({}, function(self, enumType)
 		return rawget(rawset(self, enumType, function(...)
 			local enum = Schema.Abstract.Enum[enumType];
 			return TypeError.Assert(
@@ -477,25 +491,20 @@ local Type = {
 -------------------------------------------------------
 -- Attribute evaluation
 -------------------------------------------------------
-local function EvalWrapFunction(func, _, object, ...)
-	func(object, ...)
-	return object;
-end
-
 local function EvalSetAndMap(self, object, value, key, name)
 	local method = rawget(object, name)
 	if not method then
 		method = __get(object)[name];
 		assert(method, ('Method name %q derived from %q does not exist.'):format(name, key))
-		self[key] = GenerateClosure(EvalWrapFunction, method);
+		self[key] = GenerateClosure(InternalWrapFunction, method);
 	end
 	method(object, value)
 	return object;
 end
 
-local Eval = __proxy(__callable({
+local Eval = __index(__call({
 	Call = function(func)
-		return GenerateClosure(EvalWrapFunction, func)
+		return GenerateClosure(InternalWrapFunction, func)
 	end;
 	Map = function(methodName)
 		return function(self, object, value, key)

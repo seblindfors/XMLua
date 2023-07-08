@@ -56,6 +56,11 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 				HORIZONTAL           (1);
 				VERTICAL             (2);
 			};
+			OUTLINETYPE {
+				NONE                 (1);
+				NORMAL               (2);
+				THICK                (3);
+			};
 			WRAPMODE {
 				CLAMP                (1);
 				REPEAT               (2);
@@ -65,6 +70,9 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 				MIRROR               (6);
 			};
 		};
+
+		AbsValue ( Method.Forward )
+		. val ( Type.Number );
 
 
 		Object
@@ -149,7 +157,7 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 
 
 		Resizing
-		. scale ( AND(Type.Number, Eval.Setter) )
+		. scale ( OR(Eval.Setter, Type.Number) )
 		{
 			Anchors
 			. implement ( Abstract { Anchors {} } );
@@ -184,38 +192,38 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 				TableObject  {};
 			};
 		}
-		. alpha              ( AND(Type.Number, Eval.Setter) )
-		. enableMouse        ( AND(Type.Bool, Eval.Togglable) )
-		. enableMouseClicks  ( AND(Type.Bool, Eval.SetMouseClickEnabled) )
-		. enableMouseMotion  ( AND(Type.Bool, Eval.SetMouseMotionEnabled) )
-		. hidden             ( AND(Type.Bool, Eval(function(object, hide) object:SetShown(not hide) end)) )
-		. ignoreParentAlpha  ( Eval.Setter      )
-		. ignoreParentScale  ( Eval.Setter      )
-		. parent             ( AND(OR(Type.String, Type.Frame), Eval.Setter) )
-		. passThroughButtons ( Eval.Setter      )
-		. setAllPoints       ( AND(OR(Type.Bool, Type.String, Type.Widget), Eval.Togglable) );
+		. alpha              ( OR(Eval.Setter, Type.Number) )
+		. enableMouse        ( OR(Eval.Togglable, Type.Bool) )
+		. enableMouseClicks  ( OR(Eval.SetMouseClickEnabled, Type.Bool) )
+		. enableMouseMotion  ( OR(Eval.SetMouseMotionEnabled, Type.Bool) )
+		. hidden             ( Eval(function(object, hide) object:SetShown(not hide) end) )
+		. ignoreParentAlpha  ( OR(Eval.Setter, Type.Bool) )
+		. ignoreParentScale  ( OR(Eval.Setter, Type.Bool) )
+		. parent             ( OR(Eval.Setter, OR(Type.String, Type.Frame)) )
+		. passThroughButtons ( OR(Eval.Setter, Type.Bool) )
+		. setAllPoints       ( OR(Eval.Togglable, OR(Type.Bool, Type.String, Type.Widget)) );
 
 
 		TextureBase
 		. extend            { Abstract { LayoutFrame {} } }
 		. insert            ( Factory.Texture                )
-		. alphaMode         ( AND(Type.Enum.ALPHAMODE, Eval.SetBlendMode) )
+		. alphaMode         ( OR(Eval.SetBlendMode, Type.Enum.ALPHAMODE) )
 		. atlas             ( Type.String                    )
 		. desaturated       ( Eval.SetDesaturation           )
 		. file              ( OR(Type.String, Type.Number)   )
 		. filterMode        ( Type.Enum.FILTERMODE           )
-		. horizTile         ( AND(Type.Bool, Eval.Setter)    )
+		. horizTile         ( OR(Eval.Setter, Type.Bool)     )
 		. hWrapMode         ( Type.Enum.WRAPMODE             )
 		. mask              ( Eval.Setter                    )
 		. noanimalpha       ( Type.Unsupported               )
 		. nolazyload        ( Type.Unsupported               )
 		. nonBlocking       ( Eval.SetBlockingLoadsRequested )
 		. nounload          ( Type.Unsupported               )
-		. rotation          ( AND(Type.Number, Eval.Setter)  )
-		. snapToPixelGrid   ( AND(Type.Bool, Eval.Setter)    )
-		. texelSnappingBias ( AND(Type.Number, Eval.Setter)  )
+		. rotation          ( OR(Eval.Setter, Type.Number)   )
+		. snapToPixelGrid   ( OR(Eval.Setter, Type.Bool)     )
+		. texelSnappingBias ( OR(Eval.Setter, Type.Number)   )
 		. useAtlasSize      ( Type.Bool                      )
-		. vertTile          ( AND(Type.Bool, Eval.Setter)    )
+		. vertTile          ( OR(Eval.Setter, Type.Bool)     )
 		. vWrapMode         ( Type.Enum.WRAPMODE             )
 		{
 			TexCoords
@@ -249,6 +257,42 @@ local Abstract, UI = XML:SetResolver(Metadata.Factory.Resolver)(Metadata.Factory
 			Color ( Method.Color )
 			. extend ( Abstract { Color {} } );
 		};
+
+
+		FontStringBase
+		. extend            { Abstract { LayoutFrame {} } }
+		. insert            ( Factory.FontString          )
+		. degrees           ( Eval.SetRotation            )
+		. ignoreParentAlpha ( Eval.Setter                 )
+		. ignoreParentScale ( Eval.Setter                 )
+		. indented          ( Eval.SetIndentedWordWrap    )
+		. justifyH          ( Eval.Setter                 )
+		. justifyV          ( Eval.Setter                 )
+		. maxLines          ( Eval.Setter                 )
+		. monochrome        ( Type.Bool                   )
+		. nonspacewrap      ( Eval.SetNonSpaceWrap        )
+		. outline           ( Type.Enum.OUTLINETYPE       )
+		. spacing           ( Eval.Setter                 )
+		. text              ( Eval.Setter                 )
+		. wordwrap          ( Eval.SetWordWrap            )
+		. font              ( OR(Type.String, Type.Widget) )
+		. bytes             ( Eval.SetMaxBytes            )
+		{
+			FontHeight
+			. insert ( Method(function(object, props) if not props.val then return end; object:SetTextHeight(props.val) end) )
+			. val    ( Type.Number )
+			{
+				AbsValue ( Method.Parent )
+				. val    ( Type.Number   );
+			};
+			Color ( Method.Color )
+			. extend ( Abstract { Color {} } );
+			Shadow
+			. x ( Type.Number )
+			. y ( Type.Number );
+
+		};
+
 
 		Animation
 		. extend {

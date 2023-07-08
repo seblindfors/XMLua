@@ -6,25 +6,80 @@ local pclick = function(self) print('postcall click') end
 local playerUnitAttribute = XML.Attribute .name 'unit' .value 'player';
 local actionButtonType = XML.Attribute .name 'type' .value 'action';
 local buttonSize = XML.Size .x(42) .y(42);
+local innerFrame = XML.
+					Frame
+					. parentKey 'testChild'
+					. setAllPoints (true)
+					: SetParent(ActionButton1)
+					: SetMama(ActionButton1, 1234, DISABLE, true);
 
 xmltest = XML() {
-	Frame .name 'CustomActionBarFrame' .inherits 'SecureHandlerBaseTemplate' .frameStrata('HIGH') .parent(UIParent) .parentKey('Test') .scale(0.5) .clipChildren(true) {
-		Size .x (84) .y (42);
+	Frame
+	. name 'CustomActionBarFrame'
+	. inherits 'SecureHandlerBaseTemplate'
+	. frameStrata('HIGH')
+	. parent(UIParent)
+	. parentKey('Test')
+	. scale(0.5)
+	. clipChildren(true)
+	{
+		Size
+		. x (84)
+		. y (42);
 		Anchors {
-			Anchor .point 'CENTER' .relativeTo (UIParent) {
-				Offset .x(0) .y(100);
+			Anchor
+			. point 'CENTER'
+			. relativeTo (UIParent)
+			{
+				Offset
+				. x (0)
+				. y (100);
 			};
 		};
 		Attributes {
-			Attribute .type('number') .name('actionpage') .value(1);
+			Attribute
+			. type ('number')
+			. name ('actionpage')
+			. value (1);
 		};
 		KeyValues {
-			KeyValue .key('statehidden') .value(true);
+			KeyValue
+			. key ('statehidden')
+			. value (true);
+		};
+		Frames {
+			Frame
+			. parentKey 'testChild2'
+			. setAllPoints (true)
+			{
+				Frames {
+					innerFrame;
+				};
+			};
+		};
+		Layers {
+			Layer
+			. level 'ARTWORK'
+			{
+				Texture
+				. name "$parentTopRight"
+				. parentKey "TopRight" {
+					Anchors {
+						Anchor
+						. point 'TOPRIGHT';
+					};
+					Size .x (64) .y (64);
+					Color
+					. color (BLUE_FONT_COLOR);
+				};
+			};
 		};
 	};
 }
 
-DevTools_Dump(xmltest())
+--print(xmltest)
+
+xmltest()
 
 
 

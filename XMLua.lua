@@ -60,8 +60,10 @@ local Element, Props = {}, {
 	Namespace        = '__attrs';
 	Content          = '__content';
 	CurrentAttribute = '__curr';
+	Debug            = '__debug';
 	Print            = tostring;
 	PrintNamespace   = tostring;
+	GetDebugName     = tostring;
 };
 
 function Element:__index(key)
@@ -99,11 +101,9 @@ function Element:__tostring()
 
 	if istable(content) then
 		local children = {};
-
 		for index, child in ipairs(content) do
 			children[index] = Props.Print(child)
 		end
-
 		content = indent(table.concat(children, INDENT_NEWLINE))
 	end
 
@@ -185,6 +185,10 @@ local Metadata = {
 	Tags = TAG;
 	Element = Props;
 	Attributes = Modes;
+	Prototype = {
+		Element = Element;
+		Attributes = Attributes;
+	};
 };
 
 -------------------------------------------------------
@@ -206,21 +210,23 @@ end
 -------------------------------------------------------
 -- Element factory
 -------------------------------------------------------
-local function create(name)
+local function create(name, debugName)
 	return setmetatable({
 		[Props.Name]       = name;
+		[Props.Debug]      = debugName;
 		[Props.Namespace]  = {};
 		[Props.Attributes] = setmetatable({}, Attributes);
 	}, Element)
 end
 
 local function elem(name)
+	local debugName = Props.GetDebugName(name)
 	return setmetatable({}, {
 		__index = function(_, key)
-			return create(name)[key];
+			return create(name, debugName)[key];
 		end;
 		__call = function(_, ...)
-			return create(name)(...)
+			return create(name, debugName)(...)
 		end;
 	});
 end
@@ -265,10 +271,6 @@ setmetatable(XML, {
 -------------------------------------------------------
 -- Object 
 -------------------------------------------------------
-function XML:GetElementPrototype()
-	return Element;
-end
-
 function XML:GetMetadata()
 	return Metadata;
 end

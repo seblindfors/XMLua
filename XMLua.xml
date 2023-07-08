@@ -2,6 +2,7 @@
 	<Script file="XMLua.lua"/>
 	<Script file="XMLua.Factory.lua"/>
 	<Script file="XMLua.Schema.lua"/>
+	<Script file="XMLua.Debug.lua"/>
 	<Script file="XMLua.Resolver.lua"/>
 	<Script file="XMLua.Test.lua"/>
 </Ui>
